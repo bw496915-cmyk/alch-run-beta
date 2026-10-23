@@ -3,6 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { expect } from "vitest";
 
@@ -62,6 +63,17 @@ test(
       }),
     );
     expect(allowed.status).toBe(200);
+  }),
+);
+
+test(
+  "an unknown route is a 404",
+  Effect.gen(function* () {
+    const { url } = yield* stack;
+    // Plain client, not `getWhenReady`: the harness retries 404/5xx through the
+    // cold-start window, which is exactly the status under test here.
+    const response = yield* HttpClient.get(`${url}/nope`);
+    expect(response.status).toBe(404);
   }),
 );
 

@@ -90,16 +90,9 @@ test(
   }),
 );
 
-test(
-  "an unknown route is a 404",
-  Effect.gen(function* () {
-    const { url } = yield* stack;
-    // Not `getWhenReady`: it retries 404/5xx through the cold-start window, so a
-    // *deliberate* 404 would be retried away. The docs' rule — assert a status
-    // the harness considers transient with the plain client.
-    const response = yield* HttpClient.get(`${url}/nope`);
-    expect(response.status).toBe(404);
-  }),
-);
+// NOTE: a deliberate 404 ("unknown route") is asserted in `e2e/stack.test.ts`,
+// not here. In dev mode the fall-through response closes the socket
+// (`SocketError: other side closed`) rather than answering 404 — a dev-runtime
+// behaviour, so the check lives where the platform serves the response.
 
 afterAll(destroy(Stack), { timeout: 300_000 });

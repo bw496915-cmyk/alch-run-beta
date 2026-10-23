@@ -20,8 +20,8 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     // The dev-mode API suite (`test/api.test.ts`) boots workerd and deploys the
     // stack locally — ~2 minutes, and not offline-gate material. It runs via
-    // `pnpm test:dev`. Excluded here rather than moved so `test/manifest.test.ts`
-    // still counts its declarations.
+    // `pnpm test:dev`. Excluded here rather than moved so the file stays where
+    // readers expect the API tests.
     exclude: ["**/node_modules/**", "**/dist/**", "test/api.test.ts"],
     // Every fake is in memory, so anything slower than this is a hang, not a test.
     testTimeout: 5_000,
