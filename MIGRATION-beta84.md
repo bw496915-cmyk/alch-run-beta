@@ -95,10 +95,10 @@ The Worker imports nothing from Alchemy. It talks to `env.PHOTOS`, `env.DB`, `en
 the plain `Counter` Durable Object class, which is bound from `alchemy.run.ts`, so the
 package split does not reach into it either.
 
-### 5. `migrations/0001_init.sql` — no change
+### 5. `migrations/*.sql` — no change
 
-Plain SQL; the `migrations` prop on `Cloudflare.D1.Database` is a path, unaffected by the
-package split.
+Plain SQL. The `migrations` prop on `Cloudflare.D1.Database` is a path, and beta.84 does not
+touch it.
 
 ### That is all
 
@@ -113,9 +113,9 @@ rg -n 'from "alchemy/' alchemy.run.ts src/
 
 | beta.84 breaking change | Applies here? | Why |
 | --- | --- | --- |
-| Providers moved into `@alchemy.run/*` packages | **Yes** | The 3 files above; every provider import is concentrated in two of them |
-| State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | `alchemy state` itself already exists on beta.83 (`list`/`read`/`delete`, plus `--backend`); what beta.84 adds is a `bootstrap` subcommand under it. This repo wires neither, so the change is inert — see the version table below before writing either command |
-| **Effect bumped to `^4.0.5`** (#2372) | No | Already resolved: `effect@4.0.6` and `@effect/platform-node@4.0.6` satisfy it, and beta.83 has been run on 4.0.6 (install, typecheck, live dev loop) |
+| Providers moved into `@alchemy.run/*` packages | **Yes** | 5 import lines across 5 files (the `package.json` entry is the sixth file); every provider import is already concentrated here |
+| State commands moved under `alchemy state` | No, not yet | `alchemy state` already exists on beta.83 (`list`/`read`/`delete`, `--backend`); beta.84 adds a `bootstrap` subcommand. Neither is wired here — see the version table below |
+| **Effect bumped to `^4.0.5`** (#2372) | No | `effect@4.0.6` already satisfies it, and beta.83 has been exercised on it |
 | `AWS.Lambda.isBindingHost` removed; AWS hosts now get IAM grants | No | No AWS resources in this stack |
 | Distilled error classes are no longer Effect Schemas | No | No distilled SDK error handling in this code |
 | Prisma/Neon env values use the runtime wire format (`{"_tag":"Redacted",…}`) | No | No Prisma or Neon providers |

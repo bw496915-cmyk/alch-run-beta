@@ -62,20 +62,21 @@ A change is rejected if any of these hits in `src/` or `alchemy.run.ts`:
 rg -n "interface \w+Like|interface Env\b" src/ alchemy.run.ts   # hand-written binding types
 rg -n "new Response\(" src/                                     # Response.json instead
 rg -n "https://(counter|do)\b" src/                             # URL-string RPC into a DO
-rg -n "async (fetch|scheduled)\(request: Request, env" src/     # missing ctx: ExecutionContext
+rg -n "async (fetch|scheduled)\(.*env: Env\)" src/            # missing ctx: ExecutionContext
 rg -n "storage\.put\(" -A2 src/ | rg -B2 "storage\.get"         # suspicious read-modify-write
 test ! -e scripts/alch.sh                                       # CLI driven from package.json
 ```
 
-Measured baseline before the refactor (must all reach 0):
+Measured baseline before the refactor — every count must reach 0 except the last, which goes
+with its CI step:
 
-| Gate | Hits |
-| --- | --- |
-| hand-written binding interfaces | 14 |
-| `new Response(` | 2 |
-| URL-string DO RPC | 2 |
-| handlers without `ctx` | 2 |
-| `scripts/alch.sh` | present |
+| Gate | Command | Hits |
+| --- | --- | --- |
+| hand-written binding interfaces | `rg -c 'interface \w+Like\|interface Env\b' src/ alchemy.run.ts` | 14 |
+| hand-built JSON responses | `rg -c 'new Response\(' src/` | 2 |
+| URL-string DO RPC | `rg -c 'https://(counter\|do)\b' src/` | 2 |
+| handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: Env\)' src/` | 2 (`fetch`, `scheduled`) |
+| bash wrapper | `test -e scripts/alch.sh` | present |
 
 ## Refactor backlog (policy applied to this tree)
 
