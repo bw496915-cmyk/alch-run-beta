@@ -471,6 +471,17 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /", () => {
+  it("serves a route index instead of a bare 404", async () => {
+    const response = await fetchWorker("/");
+
+    expect(response.status).toBe(200);
+    const body = await readJson<{ service: string; routes: Record<string, string> }>(response);
+    expect(body.service).toBe("alch-run-beta");
+    expect(Object.keys(body.routes)).toContain("GET /health");
+  });
+});
+
 describe("unknown routes", () => {
   it("returns 404 for a path the Worker does not serve", async () => {
     const response = await fetchWorker("/nope");

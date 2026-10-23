@@ -171,6 +171,24 @@ const route = async (request: Request, env: ApiEnv): Promise<Response> => {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
+    // GET / -> a small route index, so the public root is not a bare 404.
+    if (path === "/") {
+      return json({
+        service: "alch-run-beta",
+        routes: {
+          "GET /": "this index",
+          "GET /health": "liveness",
+          "GET /stats": "DO + D1 counters (admin: Authorization: Bearer <ADMIN_TOKEN>)",
+          "GET /audit": "audit rows (admin)",
+          "GET /photos": "photo index (KV-cached)",
+          "GET /photos/<key>": "R2 body + D1 metadata",
+          "PUT /photos/<key>": "store a body, upsert metadata, enqueue an audit event",
+          "DELETE /photos/<key>": "remove the object + row",
+        },
+        docs: "https://github.com/bw496915-cmyk/alch-run-beta",
+      });
+    }
+
     if (path === "/health") {
       return json({ ok: true, time: new Date().toISOString() });
     }
