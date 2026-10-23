@@ -23,7 +23,11 @@ different products.
 │   ├── Cache.ts              # KV namespace
 │   └── QueueEvents.ts        # Queue + its Consumer
 ├── tsconfig.json             # strict, no-emit typecheck
+├── scripts/
+│   └── alch.sh               # plan / deploy / destroy a stage without remembering flags
 ├── MIGRATION-beta84.md       # the exact diff this tree needs when beta.84 ships
+├── REVIEW-2026-10-23.md      # shape conformance audit, failure log, parallel-work scoping
+├── FAILURES.md               # what broke, why, and the rules this project now follows
 └── .alchemy/                 # local state + dev logs (gitignored)
 ```
 
@@ -49,6 +53,7 @@ Three handlers on one Worker:
 - **`queue`** — the audit consumer; writes each batch into D1 (`ack`/`retry` per message).
   Attached to the queue by `Cloudflare.Queues.Consumer("ApiAuditConsumer", { scriptName: worker.workerName })`.
 - **`scheduled`** — the `0 3 * * *` cron; bumps the DO's `cronFires` counter and records a row.
+  Wired, but never yet observed to fire — see [Live deployment](#live-deployment).
 
 The **`Counter`** Durable Object is a plain (non-Effect) class exported from `src/Api.ts`
 and bound with `Cloudflare.DurableObject("Counter", { className: "Counter" })`. Its state
@@ -63,23 +68,37 @@ sleep 10 && curl $URL/audit     # the queued event, written by the consumer
 
 ## Live deployment
 
-**Two revisions exist.** The live Worker is revision 1 (R2 + D1 + KV); the Durable
-Object, Queue, Consumer and cron are built and verified locally but **not yet deployed** —
-the credentials expired mid-session (see [Credentials](#credentials)).
+**Two revisions have shipped, and revision 2 is live.** Revision 1 was the Worker over
+R2 + D1 + KV. Revision 2 (2026-10-23) added the `Counter` Durable Object, the Queue with its
+Consumer, and the `scheduled` handler with a cron trigger.
 
-Revision 1 is deployed to the `deep-pass` stage on account `7a470541a704caaf91e71efccc78fd36`:
+Two things on the live stage are **still unproven**, and neither should be read as green:
 
-| Resource | Physical name | Deployed |
-| --- | --- | --- |
-| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | yes (rev 1) |
-| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | yes |
-| D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | yes |
-| KV namespace | `2430e2e45a8544568114b1c098146c42` | yes |
-| Queue + Consumer | `alchrunbeta-events-…` + `ApiAuditConsumer` | **no — planned** |
-| `Counter` Durable Object | class `Counter` on the Worker above | **no — planned** |
-| Cron `0 3 * * *` | on the Worker above | **no — planned** |
+- the cron trigger is attached but has **never been observed to fire**;
+- one call on the Durable Object path returned a transient `errorcode: 1101`.
 
-Deploying revision 2 picks up all of the above from the same local state:
+Both are tracked, with the evidence and the open investigations, in
+[FAILURES.md](./FAILURES.md) and [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md).
+
+Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`:
+
+| Resource | Physical name | Live | What proves it |
+| --- | --- | --- | --- |
+| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | yes (rev 2) | the rev-2 routes `/stats` and `/audit` answer at that URL |
+| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | yes (rev 1) | `GET /photos/<key>` serves a body written by `PUT` |
+| D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | yes | both migrations applied — `audit_events` exists and holds rows the consumer wrote |
+| KV namespace | `2430e2e45a8544568114b1c098146c42` | yes (rev 1) | second `GET /photos` returns `x-cache: hit`, `source: kv` |
+| Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` (`b47f1db419e44d9aba6d9d65ab2abdbe`) | yes (rev 2) | an audit row appears in D1 after a `PUT` — written by the `queue()` handler, not by the request |
+| `Counter` Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | yes (rev 2) | `/stats` incremented the counter across calls, and storage kept its value (`3` → `4`) across the failed call |
+| Cron trigger | on the Worker above | **attached, never fired** | the trigger is listed by the `schedules` API; `wrangler tail` shows zero `scheduled()` invocations and no `cron.fire` row exists. See [FAILURES.md](./FAILURES.md) #8 |
+
+> **Schedule mismatch, on purpose, for now.** The committed `alchemy.run.ts` declares the
+> daily `0 3 * * *` cron, but the deployment that is live carries a `* * * * *` probe
+> trigger — the temporary value used to try to make the handler fire. Restoring the daily
+> schedule is the closing step of the cron track in
+> [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §3, not a config the live stage is meant to keep.
+
+Redeploying picks up everything above from the same local state:
 
 ```bash
 export CLOUDFLARE_API_TOKEN=…
@@ -87,7 +106,8 @@ export CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36
 pnpm exec alchemy deploy --stage deep-pass --yes --no-input
 ```
 
-Tear the stage down with:
+`./scripts/alch.sh deploy` does the same thing (and refuses to run without a token, printing
+the scopes it needs). Tear the stage down with:
 
 ```bash
 CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36 \
@@ -97,8 +117,8 @@ CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36 
 State for each stage is recorded under `.alchemy/state/AlchRunBeta/<stage>/`, so a stage
 deployed from a different machine needs that state (or a shared state store) to be
 destroyed or updated cleanly. Queue consumers reconcile against the Worker's script name,
-so revision 2 must be deployed from this checkout (or with this state) — a fresh state
-would try to recreate resources that already exist.
+so a redeploy must come from this checkout (or with this state) — a fresh state would try to
+recreate resources that already exist.
 
 ## Commands
 
@@ -109,10 +129,12 @@ would try to recreate resources that already exist.
 | `pnpm plan` | Diff against the current stage, apply nothing |
 | `pnpm deploy` | Plan → confirm → apply |
 | `pnpm destroy` | Delete everything in the stage |
+| `./scripts/alch.sh <plan\|deploy\|destroy>` | The same three commands for one stage (default `deep-pass`, `STAGE=…` overrides), refusing to run without `CLOUDFLARE_API_TOKEN` |
 
 Flags worth knowing: `--stage <name>`, `--profile <name>`, `--dry-run`, `--yes`,
 `--no-input`. Stages default to `live_${USER}` for `plan`/`deploy` and `dev_${USER}` for
-`dev`.
+`dev`. Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read
+`--help` for the subcommand in hand rather than assuming this list travels.
 
 ## Credentials
 
@@ -140,31 +162,41 @@ use a real API token (`wrangler login` → dashboard → *My Profile → API Tok
 
 ## Verified
 
-Local = `pnpm dev` on workerd. "Live" = the revision-1 deployment at the URL above;
-revision 2 (DO / queue / cron) is local-only until credentials are restored.
+Local = `pnpm dev` on workerd. Live = the revision-2 deployment at the URL above. A cell
+that says **unknown** is unproven, not a quiet pass; every live claim below is either
+exercised over HTTP against that URL or recorded in
+[REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md).
 
-| Check | Local | Live |
-| --- | --- | --- |
-| `GET /health` | 200 | 200 |
-| `PUT /photos/<key>` (R2 + D1 + KV bust) | 201 | 201 |
-| `GET /photos` first call → `x-cache: miss`, `source: d1` | ✅ | ✅ |
-| `GET /photos` second call → `x-cache: hit`, `source: kv` | ✅ | ✅ |
-| `GET /photos/<key>` → body from R2, content-type from D1 | ✅ | ✅ |
-| `DELETE` → R2 + row gone, cache busted, then 404 | — | ✅ |
-| `GET /stats` → DO counter increments across calls (1, 2, 3…) | ✅ | *rev 2* |
-| `PUT` → queue message enqueued (`queued: <uuid>` in the 201 body) | ✅ | *rev 2* |
-| Consumer drains to D1 → `GET /audit` shows the event, `auditEvents` goes 0→1 | ✅ | *rev 2* |
-| D1 migrations applied (`photos`, `photos_created_at`, `audit_events`, `__alchemy_migrations`) | ✅ | rev 1 (2 tables) |
-| `alchemy plan` after deploy → every resource `noop` | — | ✅ (rev 1) |
-| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — |
+| Check | Local | Live | Note |
+| --- | --- | --- | --- |
+| `GET /health` | 200 | 200 | rev 1, still answering after rev 2 |
+| `PUT /photos/<key>` (R2 + D1 + KV bust) | 201 | 201 | rev 1 |
+| `GET /photos` first call → `x-cache: miss`, `source: d1` | ✅ | ✅ | rev 1 |
+| `GET /photos` second call → `x-cache: hit`, `source: kv` | ✅ | ✅ | rev 1 |
+| `GET /photos/<key>` → body from R2, content-type from D1 | ✅ | ✅ | rev 1 |
+| `DELETE` → R2 + row gone, cache busted, then 404 | — | ✅ | rev 1 |
+| `GET /stats` → DO counter increments across calls | ✅ | ✅ **with one exception** | rev 2; one call returned `errorcode: 1101`, then the counter continued `3` → `4` — see [FAILURES.md](./FAILURES.md) #7 |
+| `PUT` → queue message enqueued (`queued: <uuid>` in the 201 body) | ✅ | ✅ | rev 2 |
+| Consumer drains to D1 → `GET /audit` shows the event, `auditEvents` goes 0→1 | ✅ | ✅ | rev 2 — proven by a row in `audit_events` that no request wrote |
+| D1 migrations applied (`photos`, `photos_created_at`, `audit_events`, `__alchemy_migrations`) | ✅ | ✅ | rev 2 added `audit_events`; the consumer writes to it |
+| **Cron fires** → `scheduled()` bumps DO `cronFires`, writes a `cron.fire` row | **not testable in seconds** | **✖ never observed** | the trigger is attached and the handler still never ran — [FAILURES.md](./FAILURES.md) #8, open |
+| `alchemy plan` after deploy → every resource `noop` | — | **unknown** | ✅ after revision 1 only; not re-checked after revision 2 |
+| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — | last recorded run 2026-10-22; docs changes do not touch it |
+
+**Still unproven on the live stage**, stated plainly so nobody inherits a false green:
+
+- the cron has never fired — an attached trigger is not a working trigger;
+- the `1101` on the DO path has no root cause, only one occurrence and a working retry;
+- the post-revision-2 `alchemy plan … noop` check has not been run.
 
 Two behaviours worth knowing when you run this yourself:
 
 - The local queue consumer drains on its own pull loop — an event landed in `audit_events`
   about 15s after the `PUT`, not instantly. Do not read an empty `/audit` as a broken
   consumer.
-- `scheduled` cannot be exercised locally in seconds. Verifying an actual cron fire needs a
-  live deploy with a `* * * * *` trigger (the committed schedule is daily at 03:00 UTC).
+- `scheduled` cannot be exercised locally in seconds, and a `* * * * *` trigger deployed
+  live did not fire either, so a cron fire is currently untested at both levels — treat the
+  cron as an open question rather than a feature.
 
 One caveat on that green typecheck: it covers *this* repo's code, not every corner of
 Alchemy's own types. beta.84 ships #2413 precisely to make `alchemy/State` type-check under
