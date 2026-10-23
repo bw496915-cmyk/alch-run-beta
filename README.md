@@ -74,7 +74,7 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 
 | Resource | Physical name | What proves it |
 | --- | --- | --- |
-| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | `/stats` and `/audit` answer |
+| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | `/health` answers; `/stats` + `/audit` are admin-gated (401 without the token) |
 | R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | `GET /photos/<key>` serves a body a `PUT` wrote |
 | D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | both migrations applied; `audit_events` holds consumer-written rows |
 | KV namespace | `2430e2e45a8544568114b1c098146c42` | second `GET /photos` returns `x-cache: hit` |
@@ -82,19 +82,18 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | counter increments across calls and survives eviction (`3`→`4`) |
 | Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
 
-Three live caveats, none of them green:
+Two live caveats, neither green yet:
 
-- the cron's *daily* schedule has not been observed: the 16 rows came from a temporary
-  `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC — and
-  `pnpm cron-health` is what will confirm it (it currently exits 1, correctly);
+- the cron's *daily* schedule has not been observed: the 16 `cron.fire` rows came from a
+  temporary `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC —
+  `pnpm cron-health` confirms it (it exits 1 until then, correctly). The 2026-10-23 redeploy
+  removed the probe trigger, so the committed schedule is now the only one attached;
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
-  [FAILURES.md](./FAILURES.md) #7;
-- the live bundle **predates** the four bug fixes below, so `bytes` accounting and the
-  `PUT /photos` status code differ from `src/` until the next deploy.
+  [FAILURES.md](./FAILURES.md) #7.
 
-The live stage also carries a temporary `* * * * *` probe trigger while the committed
-`alchemy.run.ts` declares daily `0 3 * * *`. Restoring it is the closing step of the cron track.
+The live bundle now matches `src/` (redeployed 2026-10-23): the four bug fixes, the
+`AuditDeadLetter` queue, the admin gate on `/stats` + `/audit`, and the degrade-to-503 path.
 
 ```bash
 export CLOUDFLARE_API_TOKEN=…          # see Credentials
@@ -115,7 +114,7 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 63 offline tests in seven suites, no account, no network |
+| `pnpm test` | `vitest run` — 67 offline tests in seven suites, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -229,7 +228,7 @@ not a quiet pass.
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
-| `pnpm test` | 63/63 in seven suites, offline | — |
+| `pnpm test` | 67/67 in seven suites, offline | — |
 
 Two runtime behaviours worth knowing:
 
