@@ -178,12 +178,12 @@ const route = async (request: Request, env: ApiEnv): Promise<Response> => {
         routes: {
           "GET /": "this index",
           "GET /health": "liveness",
-          "GET /stats": "DO + D1 counters (admin: Authorization: Bearer <ADMIN_TOKEN>)",
-          "GET /audit": "audit rows (admin)",
+          "GET /stats": "DO + D1 counters; admin: Authorization: Bearer ADMIN_TOKEN",
+          "GET /audit": "audit rows; admin",
           "GET /photos": "photo index (KV-cached)",
-          "GET /photos/<key>": "R2 body + D1 metadata",
-          "PUT /photos/<key>": "store a body, upsert metadata, enqueue an audit event",
-          "DELETE /photos/<key>": "remove the object + row",
+          "GET /photos/:key": "R2 body + D1 metadata",
+          "PUT /photos/:key": "store a body, upsert metadata, enqueue an audit event",
+          "DELETE /photos/:key": "remove the object + row",
         },
         docs: "https://github.com/bw496915-cmyk/alch-run-beta",
       });
