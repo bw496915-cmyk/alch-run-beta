@@ -46,7 +46,7 @@ then went quiet at 16:28:55 — while an isolated probe fired ten consecutive mi
 stopping. That is stale scheduler delivery in this account, not anything in the repo.
 
 It is no longer a paragraph: `pnpm cron-health` compares the platform's *delivered* expression
-against the *configured* schedule, is unit-tested (8 cases), and runs every 6 hours in CI. Its
+against the *configured* schedule, is unit-tested (13 cases), and runs every 6 hours in CI. Its
 blind spots are listed in `REVIEW-2026-10-23.md` §8 rather than left to the reader.
 
 **Why 8 was not a shape bug.** The first hypothesis was that `crons: [...]` + a plain

@@ -5,8 +5,8 @@ installable, and its post is served only from the preview host (see
 [Why beta.83](#why-beta83-not-beta84)).
 
 One Worker over four Cloudflare services — R2 (bodies), D1 (metadata + audit), KV (cached
-index), Durable Object (counters) — plus a Queue consumer and a cron handler. Deployed to a
-real account.
+index), Durable Object (counters) — plus a queue consumer (with a dead-letter queue) and a cron
+handler. Deployed to a real account.
 
 ## Layout
 
@@ -35,6 +35,7 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 
 | Route | Services | Behaviour |
 | --- | --- | --- |
+| `GET /` | — | Route index: service, route list, docs link |
 | `GET /health` | — | `{ ok, time }` |
 | `GET /stats` | DO + D1 | **Admin-gated.** DO counter + audit-row count, each read independently (`degraded: true` if one fails) |
 | `GET /audit` | D1 | **Admin-gated.** Rows written by the `queue()` handler |
@@ -44,8 +45,8 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `DELETE /photos/<key>` | R2 + D1 + KV | Removes object + row, busts cache |
 
 Three handlers: `fetch` (above), `queue` (audit consumer, per-message `ack`/`retry`, attached
-by `Queues.Consumer({ scriptName: worker.workerName })`), `scheduled` (`0 3 * * *`, proven to
-fire).
+by `Queues.Consumer({ queueId, scriptName: worker.workerName, deadLetterQueue })`), `scheduled`
+(`0 3 * * *`, proven to fire).
 
 The `Counter` Durable Object is exported from `src/Api.ts`, extends `DurableObject` from
 `cloudflare:workers` (the documented async-Worker shape), and is bound with
@@ -79,6 +80,7 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | both migrations applied; `audit_events` holds consumer-written rows |
 | KV namespace | `2430e2e45a8544568114b1c098146c42` | second `GET /photos` returns `x-cache: hit` |
 | Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` | an audit row appears that no request wrote |
+| Dead-letter queue | `alchrunbeta-auditdeadletter-deep-pass-tee5ns7ofvt6mr5r` | the consumer's `deadLetterQueue` — an event that exhausts its 3 retries lands here instead of being dropped |
 | Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | counter increments across calls and survives eviction (`3`→`4`) |
 | Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
 
@@ -114,7 +116,7 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 67 offline tests in seven suites, no account, no network |
+| `pnpm test` | `vitest run` — 68 offline tests in seven suites, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -228,7 +230,7 @@ not a quiet pass.
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
-| `pnpm test` | 67/67 in seven suites, offline | — |
+| `pnpm test` | 68/68 in seven suites, offline | — |
 
 Two runtime behaviours worth knowing:
 
