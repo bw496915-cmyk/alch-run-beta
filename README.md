@@ -46,9 +46,10 @@ Three handlers: `fetch` (above), `queue` (audit consumer, per-message `ack`/`ret
 by `Queues.Consumer({ scriptName: worker.workerName })`), `scheduled` (`0 3 * * *` — wired, never
 observed to fire).
 
-The `Counter` Durable Object is exported from `src/Api.ts` and bound with
-`Cloudflare.DurableObject("Counter", { className: "Counter" })`. It is a **plain class, not the
-documented `extends DurableObject` base** — a known deviation, see `CONVENTIONS.md`.
+The `Counter` Durable Object is exported from `src/Api.ts`, extends `DurableObject` from
+`cloudflare:workers` (the documented async-Worker shape), and is bound with
+`Cloudflare.DurableObject("Counter", { className: "Counter" })`. Its counter uses
+`ctx.storage.transaction`, so concurrent `/stats` calls cannot lose an increment.
 
 ```bash
 URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev
@@ -75,7 +76,9 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 Three live caveats, none of them green:
 
 - the cron has never fired; an attached trigger is not a working trigger;
-- one DO call returned a transient `errorcode: 1101` with no root cause;
+- one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
+  object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
+  [FAILURES.md](./FAILURES.md) #7;
 - the live bundle **predates** the four bug fixes below, so `bytes` accounting and the
   `PUT /photos` status code differ from `src/` until the next deploy.
 
@@ -119,6 +122,10 @@ will then need a cast at the boundary.)
 | `CACHE` | `Map` | records `expirationTtl`; never expires |
 | `EVENTS` | array | captures bodies |
 | `COUNTER` | namespace stub | delegates to a real `new Counter(state, env)`, so DO code runs against fake storage |
+
+`cloudflare:workers` is aliased in `vitest.config.ts` to `test/stubs/cloudflare-workers.ts` —
+Node cannot resolve the Workers runtime module, while type-checking still uses the real
+declaration from `@cloudflare/workers-types`.
 
 Covered: every route above, the cache miss→hit pair (asserting a hit never reaches D1),
 `queue()` ack/retry/drain-after-failure, `scheduled()` bumping the DO and writing `cron.fire`,

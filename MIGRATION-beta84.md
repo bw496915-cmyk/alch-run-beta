@@ -139,16 +139,23 @@ command.
 
 ### One-way door: Durable Object deploy flow
 
-Independent of the package split, beta.84-era Alchemy deploys Durable Object classes through
-Cloudflare's declarative `exports` map. Cloudflare does not let a Worker go back to the older
-`migrations` flow once deployed that way — so a Worker whose first deploy used `exports`
-cannot be redeployed by an older Alchemy. Beta.83 hosted DOs go through the legacy
-`migrations` / `new_sqlite_classes` path (`WorkerProvider.ts`), which is what created the
-`Counter` namespace here.
+**This repo is already through it.** Beta.83 does *not* use the legacy `migrations` flow for
+account-level scripts: it re-uploads Cloudflare's declarative `exports` map on every deploy.
+Verified on the live script, not inferred from the source:
 
-Practical rule: **deploy the DO once on one side of the boundary and stay there.** Decide
-whether `Counter` keeps living on beta.83 or moves to beta.84 before deploying again, and do
-not roll back across that line afterwards.
+```
+GET /accounts/<acct>/workers/scripts/<name>/versions/<id>
+  → exports: {"Counter":{"type":"durable-object","storage":"sqlite"}}
+```
+
+The same map is present on both live versions (including the cron-only redeploy), and the
+`new_sqlite_classes: ["Counter"]` line in the *first* deploy log is the older bookkeeping, not
+the deployment mechanism. Cloudflare does not let a Worker return to the `migrations` flow once
+it has deployed with `exports`, so the one-way door applies **today**, not at beta.84.
+
+Practical rule: do not roll this stage back to an Alchemy release that predates the `exports`
+flow — its first redeploy would fail. Rolling back *within* the exports era (beta.83 → beta.83)
+is fine.
 
 ### Also available on beta.83 and currently unused
 

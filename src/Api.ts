@@ -20,6 +20,8 @@
 /* structural binding types                                            */
 /* ------------------------------------------------------------------ */
 
+import { DurableObject } from "cloudflare:workers";
+
 export interface R2ObjectLike {
   readonly body: ReadableStream;
   readonly size: number;
@@ -57,15 +59,6 @@ export interface KVLike {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
   delete(key: string): Promise<void>;
-}
-
-export interface DurableObjectStorageLike {
-  get<T>(key: string): Promise<T | undefined>;
-  put<T>(key: string, value: T): Promise<void>;
-}
-
-export interface DurableObjectStateLike {
-  readonly storage: DurableObjectStorageLike;
 }
 
 export interface DurableObjectStubLike {
@@ -175,28 +168,25 @@ const counterStub = (env: Env, name = COUNTER_NAME): DurableObjectStubLike =>
  *
  * State lives in DO storage, so it survives Worker deployments and isolates.
  */
-export class Counter {
-  private readonly state: DurableObjectStateLike;
-  private readonly env: Env;
-
-  constructor(state: DurableObjectStateLike, env: Env) {
-    this.state = state;
-    this.env = env;
-  }
-
+export class Counter extends DurableObject<Env> {
+  /**
+   * Read-modify-write under a storage transaction: two concurrent requests both
+   * address the "global" object, and a plain get-then-put can lose an increment.
+   */
   private async bump(field: string, by = 1): Promise<number> {
-    const current = (await this.state.storage.get<number>(field)) ?? 0;
-    const next = current + by;
-    await this.state.storage.put(field, next);
-    return next;
+    return this.ctx.storage.transaction(async (txn) => {
+      const next = ((await txn.get<number>(field)) ?? 0) + by;
+      await txn.put(field, next);
+      return next;
+    });
   }
 
-  async fetch(request: Request): Promise<Response> {
+  override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     switch (url.pathname) {
       case "/increment":
-        return json({ count: await this.bump("count"), env: this.env ? "bound" : "unbound" });
+        return json({ count: await this.bump("count") });
       case "/cron":
         return json({
           cronFires: await this.bump("cronFires"),
@@ -204,8 +194,8 @@ export class Counter {
         });
       case "/snapshot":
         return json({
-          count: (await this.state.storage.get<number>("count")) ?? 0,
-          cronFires: (await this.state.storage.get<number>("cronFires")) ?? 0,
+          count: (await this.ctx.storage.get<number>("count")) ?? 0,
+          cronFires: (await this.ctx.storage.get<number>("cronFires")) ?? 0,
         });
       default:
         return json({ error: "unknown durable object route", path: url.pathname }, 404);

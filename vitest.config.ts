@@ -10,6 +10,12 @@ import { defineConfig } from "vitest/config";
  * silently join the gate.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Node cannot resolve the Workers runtime module; the test stub stands in.
+      "cloudflare:workers": new URL("./test/stubs/cloudflare-workers.ts", import.meta.url).pathname,
+    },
+  },
   test: {
     include: ["test/**/*.test.ts"],
     // Every fake is in memory, so anything slower than this is a hang, not a test.

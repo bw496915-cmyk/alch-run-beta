@@ -14,7 +14,7 @@ that way here: the Durable Object `1101` and the cron that never fired.
 | 4 | `workerd` postinstall blocked | `ERR_PNPM_IGNORED_BUILDS: workerd@1.20261002.1`, and a fresh `pnpm install --frozen-lockfile` **exits 1** | pnpm runs no dependency scripts by default, and pnpm 11 **removed** `onlyBuiltDependencies` — the key was silently ignored while `strictDepBuilds` defaults to `true` | `allowBuilds: { workerd: true }` | `pnpm-workspace.yaml` |
 | 5 | keychain reads fail | exit `128` from `security … -w`, no output | the entry's ACL needs an interactive "Allow"; a non-interactive process can never satisfy it | stopped reading it; token supplied out of band | `scripts/alch.sh` hard-requires `CLOUDFLARE_API_TOKEN` |
 | 6 | `/user/tokens/verify` rejects a working token | `Invalid API Token` | that endpoint verifies *user*-scoped tokens; an account-scoped token can be valid and still fail it, while workers/d1/r2/kv/queues reads all returned 200 | treat as advisory; probe the endpoints actually used | README "Credentials" |
-| 7 | Durable Object call fails | `errorcode: 1101`, `internal error; reference = …`, no stack, `logs: []` | **not established.** The path worked before and after, and the counter kept its value (`3`→`4`), so binding and storage were intact | **open** — track B | README "Live deployment" |
+| 7 | Durable Object call fails | `errorcode: 1101`, `internal error; reference = 32g8fknruavetv9a6cnm4h38`, no stack, `logs: []` | **Cloudflare-internal**, established from Workers Observability telemetry, not from tail: the failing invocation has `cpuTimeMs: 0`, `exceptions: null`, `logs: null`, and **no `Counter` invocation event at all** — the object was never entered, so no user code ran. The same script version had served 17 requests in the previous two minutes, v2 and v3 share one etag (cron-only redeploy, identical code), and it healed with no deploy while the same instance kept its storage | **closed as platform-side** — not reproducible in 4 deploy cycles × 3 class shapes, including the exact incident pacing | README "Live deployment" |
 | 8 | Cron attached, never fired | no error: trigger present in `schedules`, zero scheduled invocations in `tail`, zero `cron.fire` rows, `cronFires` never advanced | **not established.** The original shape hypothesis was **falsified** (see below), so this is handler/runtime, not declaration | **open** — track A | README "Live deployment" |
 | 9 | `wrangler tail` prints nothing through a pipe | `… \| grep <pattern>` produced nothing, including for requests known to arrive | `tail` does not flush per line to a pipe; the stream never ends, so the filter sees nothing | stream to a file for a bounded window | working practice, recorded here |
 
@@ -24,10 +24,16 @@ that way here: the Durable Object `1101` and the cron that never fired.
 document exactly that ("This is how async (non-Effect) Workers configure Cron Triggers"). The
 declaration is correct; something in the handler or the trigger path is not.
 
-**Why 7 is not closed.** One occurrence, self-healing, no stack. The audit found the async DO
-*class* should extend `DurableObject` from `cloudflare:workers`
-(`DurableObject.d.ts:870-897`), which is a real deviation — but nothing yet proves it caused a
-platform-internal error.
+**Why 7 is not a code defect.** `error code: 1101` is the generic page for *any* uncaught
+exception, so it carries no diagnostic value on its own: a deliberately broken Worker returns
+the same page while telemetry shows the real message. Here telemetry shows the opposite — no
+handler ran at all. Two consequences: the shape deviation (the class did not extend
+`DurableObject`) was real but unrelated, and it is now fixed for API access, not as a bug fix.
+
+**Technique worth keeping:** `wrangler tail` is not a record — it is a stream you can lose. The
+Worker's persisted Workers Observability events are queryable after the fact via
+`POST /accounts/<acct>/workers/observability/telemetry/query`, which is what recovered this
+incident hours later.
 
 ## Authoring mistakes
 
@@ -51,4 +57,6 @@ platform-internal error.
 6. Guard every method a message names, and test the empty-key and trailing-slash cases.
 7. Send long-running streams (tail, watch, logs) to a file, not a pipe.
 8. A transient, undocumented failure stays **open** with its reference recorded — do not
-   promote a hypothesis to a root cause.
+   promote a hypothesis to a root cause; and query persisted telemetry, not a lost stream.
+9. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
+   (`cpuTimeMs`, exception objects, entrypoint events) before blaming the code.

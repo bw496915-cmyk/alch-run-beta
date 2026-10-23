@@ -6,6 +6,10 @@ node_modules/
 .home/
 .cf-token
 
+# scratch dirs from probe stages
+.cron-probe/
+probe/
+
 # Local secrets / env files
 .env
 .env.*

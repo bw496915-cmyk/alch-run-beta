@@ -31,8 +31,6 @@ import Api, {
   type D1Statement,
   type DurableObjectIdLike,
   type DurableObjectNamespaceLike,
-  type DurableObjectStateLike,
-  type DurableObjectStorageLike,
   type DurableObjectStubLike,
   type Env,
   type KVLike,
@@ -306,7 +304,7 @@ const makeBatch = (...messages: ReadonlyArray<QueueMessageLike>): QueueBatchLike
 /* Durable Object fakes                                                */
 /* ------------------------------------------------------------------ */
 
-class FakeDoStorage implements DurableObjectStorageLike {
+class FakeDoStorage {
   readonly data = new Map<string, unknown>();
 
   async get<T>(key: string): Promise<T | undefined> {
@@ -316,7 +314,19 @@ class FakeDoStorage implements DurableObjectStorageLike {
   async put<T>(key: string, value: T): Promise<void> {
     this.data.set(key, value);
   }
+
+  /** The platform's atomic read-modify-write; here it is just the same map. */
+  async transaction<T>(closure: (txn: FakeDoStorage) => Promise<T>): Promise<T> {
+    return closure(this);
+  }
 }
+
+/**
+ * The runtime hands the object a full `DurableObjectState`; the fake supplies the
+ * only member our code touches (`storage`), so the cast is deliberate and local.
+ */
+const asDoState = (storage: FakeDoStorage): DurableObjectState =>
+  ({ storage } as unknown as DurableObjectState);
 
 const requestFrom = (
   input: string | Request,
@@ -355,7 +365,7 @@ class FakeDoNamespace implements DurableObjectNamespaceLike {
       storage = new FakeDoStorage();
       this.storages.set(name, storage);
     }
-    const state: DurableObjectStateLike = { storage };
+    const state = asDoState(storage);
     const counter = new Counter(state, this.envProvider());
     this.counters.set(name, counter);
     return counter;
@@ -786,17 +796,14 @@ describe("Counter Durable Object", () => {
     const increment = async (): Promise<Response> =>
       stub.fetch("https://counter/increment", { method: "POST" });
 
-    expect(await readJson<{ count: number }>(await increment())).toEqual({
-      count: 1,
-      env: "bound",
-    });
+    expect(await readJson<{ count: number }>(await increment())).toEqual({ count: 1 });
     expect((await readJson<{ count: number }>(await increment())).count).toBe(2);
     expect((await readJson<{ count: number }>(await increment())).count).toBe(3);
   });
 
   it("keeps state in DO storage, so a new instance continues the sequence", async () => {
     const storage = new FakeDoStorage();
-    const state: DurableObjectStateLike = { storage };
+    const state = asDoState(storage);
     const increment = (counter: Counter): Promise<Response> =>
       counter.fetch(new Request("https://counter/increment"));
 
@@ -808,7 +815,7 @@ describe("Counter Durable Object", () => {
     expect(await readJson<{ count: number }>(await increment(second))).toMatchObject({ count: 2 });
 
     // A fresh storage starts at zero: nothing is held at module scope.
-    const other = new Counter({ storage: new FakeDoStorage() }, harness.env);
+    const other = new Counter(asDoState(new FakeDoStorage()), harness.env);
     expect(await readJson<{ count: number }>(await increment(other))).toMatchObject({ count: 1 });
 
     // And the first instance's storage really is the one that moved.
