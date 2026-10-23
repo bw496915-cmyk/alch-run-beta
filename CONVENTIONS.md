@@ -51,7 +51,7 @@ Effect-native equivalents (`Workers.cron` + `CronEventSourceLive`, `consumeQueue
 | 5 | dropping the third handler argument (`fetch(request, env)`, `scheduled(controller, env)`) | take `ctx: ExecutionContext` and use `ctx.waitUntil(...)` for work that must outlive the response (our KV refill and audit writes were inline because `ctx` did not exist) | `ExecutionContext` in workers-types |
 | 6 | `try { … } catch { message.retry() }` around the whole body | let the throw surface: the platform retries the batch and the consumer's `maxRetries` applies; catch only what you can classify | `Queues/Consumer.d.ts` settings |
 | 7 | hand-written queue/DO/R2 client shapes limiting the surface (`QueueProducerLike.send` only, no `sendBatch`/`metrics`; `R2BucketLike.get` without `onlyIf`/range) | the real `Queue`/`R2Bucket`/`DurableObjectNamespace` from `InferEnv` | `InferEnv.d.ts:45` |
-| 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI. **Retained for now**: `.github/workflows/ci.yml` invokes it, so it is deleted together with that CI step, not before | CLI page |
+| 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI (done, wrapper deleted with its CI step) | CLI page |
 | 9 | `if (path === "/x" && request.method === "GET")` chains growing past ~4 routes | keep the small chain; past that, an Effect-native router (`HttpRouter` / `HttpApi`) is the documented instrument | APIs pages |
 
 ## Gates
@@ -91,7 +91,7 @@ Measured after the refactor (baseline in brackets):
 | hand-built JSON responses | `rg -n 'new Response\(JSON' src/` | **0** (was 2) — `Response.json` everywhere. One `new Response(body, …)` remains and is correct: it returns an R2 object *stream* with custom headers, which is the platform API, not a JSON hand-roll |
 | URL-string DO RPC | `rg -c 'https://(counter\|do)\b' src/` | **0** (was 2) — the DO exposes typed RPC methods, called as `getByName(…).increment()` |
 | handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: ApiEnv\)' src/` | **0** (was 2) — both take `ctx: ExecutionContext` |
-| bash wrapper | `test -e scripts/alch.sh` | present (goes with its CI step) |
+| bash wrapper | `test -e scripts/alch.sh` | **gone** — the CLI is driven from `package.json` scripts, and `.github/workflows/ci.yml` calls `alchemy plan` directly |
 
 **One deviation remains, and it is forced by the compiler:** `ApiEnv` is
 `Cloudflare.InferEnv<typeof bindings>` rather than `InferEnv<typeof Api>`. Applying the helper
@@ -106,9 +106,6 @@ Done: interfaces deleted (14 → 0), `env` typed by `InferEnv`, handlers take `c
 `Response.json`, DO on `extends DurableObject` with `ctx.storage.transaction`, typed RPC
 instead of URL dispatch.
 
-Done: gates encoded as `test/policy.test.ts` (three layers, mutation-checked).
-
-Remaining:
-
-1. Delete `scripts/alch.sh` **and** repoint `.github/workflows/ci.yml`'s plan step at the CLI in
-   the same change; move its flags into `package.json` scripts.
+All four backlog items are done: interfaces deleted, `env` typed by `InferEnv`, handlers take
+`ctx`, gates encoded as `test/policy.test.ts` (three layers, mutation-checked), and the shell
+wrapper deleted with its CI step repointed at the CLI.

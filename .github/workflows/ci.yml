@@ -115,4 +115,6 @@ jobs:
       # deployment").
       - name: Plan the stage (no apply)
         if: steps.creds.outputs.proceed == 'true'
-        run: ./scripts/alch.sh plan
+        # The CLI directly — no shell wrapper. `--stage` comes from the STAGE env
+        # defined at workflow level; applying stays a human decision.
+        run: pnpm exec alchemy plan --stage "$STAGE" --no-input

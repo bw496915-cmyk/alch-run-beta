@@ -19,7 +19,6 @@ src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consu
 test/api.test.ts          offline Vitest suite, every binding faked in memory
 vitest.config.ts          pins the suite to test/**/*.test.ts
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
-scripts/alch.sh           one stage's plan/deploy/drift/logs/check-env/destroy
 CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gates
 MIGRATION-beta84.md       the diff this tree needs when beta.84 publishes
 REVIEW-2026-10-23.md      shape audit, corrections, defects fixed, missing layers
@@ -89,8 +88,11 @@ The live stage also carries a temporary `* * * * *` probe trigger while the comm
 ```bash
 export CLOUDFLARE_API_TOKEN=…          # see Credentials
 export CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36
-./scripts/alch.sh deploy               # or: pnpm exec alchemy deploy --stage deep-pass
-./scripts/alch.sh destroy              # delete the whole stage
+export ALCHEMY_STAGE=deep-pass         # otherwise the stage is live_${USER}
+
+pnpm deploy                            # plan → confirm → apply
+pnpm drift                             # resources changed outside alchemy
+pnpm destroy                           # delete the whole stage
 ```
 
 State lives in `.alchemy/state/AlchRunBeta/<stage>/`, so only this checkout (or a shared state
@@ -104,11 +106,11 @@ fresh state would try to recreate resources that already exist.
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
 | `pnpm test` | `vitest run` — 26 offline tests, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
-| `pnpm plan` / `deploy` / `destroy` | Alchemy against the default stage |
-| `./scripts/alch.sh {plan\|deploy\|drift\|logs\|check-env\|state\|destroy}` | One stage (`STAGE=…` overrides `deep-pass`); refuses to run without `CLOUDFLARE_API_TOKEN` |
+| `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
+| `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
 
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for
-the subcommand in hand. Stages default to `live_${USER}` (`dev_${USER}` for `dev`).
+the subcommand in hand. `$ALCHEMY_STAGE` selects the stage; `dev` defaults to `dev_${USER}`.
 
 ## Testing
 
@@ -149,7 +151,7 @@ Four defects and one CI blocker the suite found are **fixed**, not pinned:
 | Job | When | What |
 | --- | --- | --- |
 | `verify` | every push and PR | `pnpm install --frozen-lockfile`, `typecheck`, `test` — no secrets |
-| `plan` | `main` only, after `verify` | `./scripts/alch.sh plan` — never `deploy`; applying stays a human decision |
+| `plan` | `main` only, after `verify` | `pnpm exec alchemy plan --stage "$STAGE"` — never `deploy`; applying stays a human decision |
 
 `plan` runs on `workflow_dispatch` or when a `CLOUDFLARE_API_TOKEN` secret exists; GitHub
 rejects `secrets.*` inside `if:`, so the check happens in a step and a push without the secret

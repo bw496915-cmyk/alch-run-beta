@@ -159,12 +159,12 @@ is fine.
 
 ### Also available on beta.83 and currently unused
 
-These exist in the pinned CLI and cost nothing to adopt (wired into `scripts/alch.sh`):
+These exist in the pinned CLI and cost nothing to adopt (wired into `package.json` scripts):
 
 ```bash
-./scripts/alch.sh check-env   # alchemy provider check-env — CI preflight, exits 1 if creds/env missing
-./scripts/alch.sh drift       # alchemy drift — detects resources changed/deleted outside alchemy
-./scripts/alch.sh logs --tail # alchemy logs — past entries by default, live with --tail
+pnpm check-env        # alchemy provider check-env — CI preflight, exits 1 if creds/env missing
+pnpm drift            # alchemy drift — detects resources changed/deleted outside alchemy
+pnpm logs --tail      # alchemy logs — past entries by default, live with --tail
 ```
 
 ### Relocations *within* packages at beta.84
