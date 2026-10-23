@@ -41,6 +41,7 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
   "test/api.test.ts",
   "test/cron-health.test.ts",
   "test/docs.test.ts",
+  "test/flags.test.ts",
   "test/manifest.test.ts",
   "test/policy.test.ts",
   "test/preflight.test.ts",
@@ -49,10 +50,11 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
 /**
  * The floor, not the current count: 54 when this file landed (41 + preflight's
  * 5 + the five envelope cases + these three), raised to 55 with the
- * pin/workaround guard in `docs.test.ts`. Raise it deliberately when adding
- * tests; lowering it is the review gate.
+ * pin/workaround guard in `docs.test.ts`, to 63 with `flags.test.ts` (7) and the
+ * queue-redelivery case. Raise it deliberately when adding tests; lowering it is
+ * the review gate.
  */
-const MIN_TESTS = 55;
+const MIN_TESTS = 63;
 
 /** A suite's own declarations: two-space `it(` / `test(` at the start of a line. */
 const DECLARED_TEST = /^ {2}(?:it|test)\(/gm;

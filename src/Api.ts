@@ -76,6 +76,29 @@ const listPhotos = async (env: ApiEnv): Promise<ReadonlyArray<PhotoRow>> => {
 
 const counterStub = (env: ApiEnv, name = COUNTER_NAME) => env.COUNTER.getByName(name);
 
+/**
+ * One audit row, idempotently. Queues delivers at least once, so a redelivered
+ * message must not re-insert (the id is the PK) nor fail the retry — a duplicate
+ * is a no-op, not a `D1_ERROR` that burns the retry budget.
+ */
+const insertAuditEvent = async (
+  env: ApiEnv,
+  event: {
+    readonly id: string;
+    readonly type: string;
+    readonly detail: string;
+    readonly at: string;
+  },
+): Promise<void> => {
+  await env.DB.prepare(
+    `INSERT INTO audit_events (id, type, detail, at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(id) DO NOTHING`,
+  )
+    .bind(event.id, event.type, event.detail, event.at)
+    .run();
+};
+
 /* ------------------------------------------------------------------ */
 /* Durable Object                                                      */
 /* ------------------------------------------------------------------ */
@@ -190,8 +213,9 @@ export default {
         if (object === null) {
           return json({ error: "object not found in R2", key, row }, 404);
         }
-        const body = await object.text();
-        return new Response(body, {
+        // Stream the object body: it is the platform API, and it keeps binary
+        // bytes intact (reading `.text()` would re-encode them as UTF-8).
+        return new Response(object.body, {
           status: 200,
           headers: {
             "content-type": row?.content_type ?? "text/plain; charset=utf-8",
@@ -251,11 +275,12 @@ export default {
     for (const message of batch.messages) {
       try {
         const event = message.body as PhotoEvent;
-        await env.DB.prepare(
-          "INSERT INTO audit_events (id, type, detail, at) VALUES (?, ?, ?, ?)",
-        )
-          .bind(event.id, event.type, `${event.key} (${event.bytes} bytes)`, event.at)
-          .run();
+        await insertAuditEvent(env, {
+          id: event.id,
+          type: event.type,
+          detail: `${event.key} (${event.bytes} bytes)`,
+          at: event.at,
+        });
         message.ack();
       } catch {
         message.retry();
@@ -266,15 +291,11 @@ export default {
   /** Cron handler: records each fire in the Durable Object. */
   async scheduled(controller: ScheduledController, env: ApiEnv, ctx: ExecutionContext): Promise<void> {
     await counterStub(env).recordCronFire();
-    await env.DB.prepare(
-      "INSERT INTO audit_events (id, type, detail, at) VALUES (?, ?, ?, ?)",
-    )
-      .bind(
-        crypto.randomUUID(),
-        "cron.fire",
-        `${controller.cron} at ${controller.scheduledTime}`,
-        new Date().toISOString(),
-      )
-      .run();
+    await insertAuditEvent(env, {
+      id: crypto.randomUUID(),
+      type: "cron.fire",
+      detail: `${controller.cron} at ${controller.scheduledTime}`,
+      at: new Date().toISOString(),
+    });
   },
 };

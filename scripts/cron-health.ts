@@ -31,29 +31,33 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { evaluate, readEnvelope, type Delivery } from "./cron-health-logic.ts";
+import { readFlag, readNumberFlag } from "./flags.ts";
 
 const argv = process.argv.slice(2);
-const flag = (name: string, fallback: string | undefined): string | undefined => {
-  const i = argv.indexOf(`--${name}`);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
-};
 
-const STAGE = flag("stage", process.env.ALCHEMY_STAGE ?? "deep-pass")!;
+const STAGE = readFlag(argv, "stage", process.env.ALCHEMY_STAGE ?? "deep-pass") ?? "deep-pass";
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID ?? "7a470541a704caaf91e71efccc78fd36";
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-const WINDOW_HOURS = Number(flag("window-hours", "48"));
-const MAX_AGE_HOURS = Number(flag("max-age-hours", "26"));
-const FROM = flag("from", undefined);
-const TO = flag("to", undefined);
+const WINDOW_HOURS = readNumberFlag(argv, "window-hours", 48);
+const MAX_AGE_HOURS = readNumberFlag(argv, "max-age-hours", 26);
+const FROM = readFlag(argv, "from");
+const TO = readFlag(argv, "to");
 
 if (!TOKEN) {
   console.error("CLOUDFLARE_API_TOKEN is not set");
   process.exit(2);
 }
 
+// A typo must not silently disable the freshness invariant: `NaN > x` is false,
+// which would read as "never stale".
+if (!Number.isFinite(WINDOW_HOURS) || !Number.isFinite(MAX_AGE_HOURS)) {
+  console.error("--window-hours and --max-age-hours must be positive numbers");
+  process.exit(2);
+}
+
 /** The Worker name recorded by the last deploy of this stage. */
 const workerName = (): string => {
-  const override = flag("worker", undefined);
+  const override = readFlag(argv, "worker");
   if (override) return override;
   const file = join(".alchemy", "state", "AlchRunBeta", STAGE, "Api.json");
   try {

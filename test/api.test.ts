@@ -48,7 +48,8 @@ const SQL = {
   getPhoto: "SELECT key, bytes, content_type, created_at FROM photos WHERE key = ?",
   insertPhoto: "INSERT INTO photos",
   deletePhoto: "DELETE FROM photos WHERE key = ?",
-  insertAudit: "INSERT INTO audit_events (id, type, detail, at) VALUES (?, ?, ?, ?)",
+  insertAudit:
+    "INSERT INTO audit_events (id, type, detail, at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
 } as const;
 
 interface PhotoRow {
@@ -178,6 +179,10 @@ class FakeD1 {
         throw new Error("D1_ERROR: simulated database unavailable");
       }
       const [id, type, detail, at] = values;
+      // ON CONFLICT(id) DO NOTHING — a redelivered message writes nothing.
+      if (this.audit.some((row) => row.id === String(id))) {
+        return { success: true, meta: { changes: 0 } };
+      }
       this.audit.push({
         id: String(id),
         type: String(type),
@@ -737,6 +742,19 @@ describe("queue()", () => {
 
     expect(messages.map((message) => message.retries)).toEqual([1, 1, 1]);
     expect(messages.map((message) => message.acks)).toEqual([0, 0, 0]);
+  });
+
+  it("is idempotent under redelivery: the same id writes one row and is acked", async () => {
+    const first = new FakeQueueMessage(event("e1"));
+    const again = new FakeQueueMessage(event("e1"));
+
+    await Api.queue(makeBatch(first), harness.env);
+    await Api.queue(makeBatch(again), harness.env);
+
+    expect(harness.d1.audit).toHaveLength(1);
+    expect(first.acks).toBe(1);
+    expect(again.acks).toBe(1);
+    expect(again.retries).toBe(0);
   });
 
   it("drains the pipeline end to end: PUT -> queue() -> GET /audit", async () => {

@@ -29,15 +29,9 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { classifyProbe, type Probe, type Verdict } from "./preflight-logic.ts";
+import { readFlag } from "./flags.ts";
 
 const argv = process.argv.slice(2);
-const flag = (name: string): string | undefined => {
-  const i = argv.indexOf(`--${name}`);
-  const value = i >= 0 ? argv[i + 1] : undefined;
-  // A following flag is not a value: `--dir --allow-read-only` must fall back
-  // to $TMPDIR, not probe a directory literally named "--allow-read-only".
-  return value !== undefined && !value.startsWith("--") ? value : undefined;
-};
 
 if (argv.includes("--help") || argv.includes("-h")) {
   console.log(
@@ -52,7 +46,7 @@ if (argv.includes("--help") || argv.includes("-h")) {
   process.exit(0);
 }
 
-const SCRATCH_DIR = flag("dir") ?? process.env.TMPDIR ?? "/tmp";
+const SCRATCH_DIR = readFlag(argv, "dir") ?? process.env.TMPDIR ?? "/tmp";
 const ALLOW_READ_ONLY = argv.includes("--allow-read-only");
 
 const probeScratch = (dir: string): Probe => {
