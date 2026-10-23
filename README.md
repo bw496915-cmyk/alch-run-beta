@@ -48,8 +48,9 @@ observed to fire).
 
 The `Counter` Durable Object is exported from `src/Api.ts`, extends `DurableObject` from
 `cloudflare:workers` (the documented async-Worker shape), and is bound with
-`Cloudflare.DurableObject("Counter", { className: "Counter" })`. Its counter uses
-`ctx.storage.transaction`, so concurrent `/stats` calls cannot lose an increment.
+`Cloudflare.DurableObject<Counter>("Counter", { className: "Counter" })` so its **methods are
+typed RPC** — `getByName("global").increment()` — with no URL-string dispatch. Increments run
+inside `ctx.storage.transaction`, so concurrent `/stats` calls cannot lose one.
 
 ```bash
 URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev
@@ -111,9 +112,10 @@ the subcommand in hand. Stages default to `live_${USER}` (`dev_${USER}` for `dev
 
 ## Testing
 
-Offline by construction: `Env` is a set of hand-written structural interfaces, so every binding
-is faked in memory. (Replacing those interfaces with `InferEnv` is the next refactor; the fakes
-will then need a cast at the boundary.)
+Offline by construction: `env` is typed by `ApiEnv` (`Cloudflare.InferEnv` from the composition
+root) — real `R2Bucket`/`D1Database`/`KVNamespace`/`Queue`/`DurableObjectNamespace`, zero
+hand-written interfaces — so every binding is faked in memory and cast once at the harness
+boundary, where the runtime supplies the rest.
 
 | Binding | Fake | Fidelity kept |
 | --- | --- | --- |
@@ -187,12 +189,14 @@ not a quiet pass.
 | `GET /photos` miss → `source: d1`, then hit → `source: kv` | ✅ | ✅ |
 | `GET /photos/<key>` body from R2, content-type from D1 | ✅ | ✅ |
 | `DELETE` → object + row gone, cache busted, then 404 | — | ✅ |
-| `GET /stats` → DO counter increments | ✅ | ✅ *with one `1101`* |
+| `GET /stats` → DO counter via typed RPC increments | ✅ | ✅ (8 → 9 after the RPC deploy) |
+| `PUT` of a non-ASCII body records UTF-8 bytes (`"é"` → 2) | ✅ | ✅ |
 | Consumer drains to D1 → `/audit` shows the event | ✅ | ✅ |
 | D1 migrations applied (`photos`, `audit_events`, `__alchemy_migrations`) | ✅ | ✅ |
 | **Cron fires** → `cronFires` + `cron.fire` row | not testable in seconds | **✖ never observed** |
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
+| policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
 | `pnpm test` | 26/26, offline | — |
 
 Two runtime behaviours worth knowing:

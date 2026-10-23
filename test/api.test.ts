@@ -1,8 +1,9 @@
 /**
  * Offline unit tests for the Worker in `src/Api.ts`.
  *
- * No network, no Cloudflare account, no workerd: the bindings are hand-written
- * structural interfaces (`Env`), so this file fakes each one in memory.
+ * No network, no Cloudflare account, no workerd. `env` is typed by `ApiEnv`
+ * (`Cloudflare.InferEnv` from the composition root), so each binding is faked in
+ * memory and cast once at the harness boundary — the runtime supplies the rest.
  *
  *   PHOTOS  -> FakeR2      Map of key -> { text, contentType }
  *   DB      -> FakeD1      switches on the handful of normalised SQL strings the
@@ -26,21 +27,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import Api, {
   Counter,
-  type D1Like,
-  type D1Result,
-  type D1Statement,
-  type DurableObjectIdLike,
-  type DurableObjectNamespaceLike,
-  type DurableObjectStubLike,
-  type Env,
-  type KVLike,
-  type QueueBatchLike,
-  type QueueMessageLike,
-  type QueueProducerLike,
-  type R2BucketLike,
-  type R2ObjectLike,
-  type ScheduledControllerLike,
 } from "../src/Api.ts";
+import type { ApiEnv } from "../alchemy.run.ts";
 
 /* ------------------------------------------------------------------ */
 /* literals mirrored from src/Api.ts                                   */
@@ -93,7 +81,7 @@ const encoder = new TextEncoder();
 /* D1 fake                                                             */
 /* ------------------------------------------------------------------ */
 
-class FakeD1Statement implements D1Statement {
+class FakeD1Statement {
   readonly db: FakeD1;
   readonly sql: string;
   values: ReadonlyArray<string | number> = [];
@@ -103,14 +91,14 @@ class FakeD1Statement implements D1Statement {
     this.sql = sql;
   }
 
-  bind(...values: ReadonlyArray<string | number>): D1Statement {
+  bind(...values: ReadonlyArray<string | number>): this {
     this.values = values;
     return this;
   }
 
-  async all<T>(): Promise<D1Result<T>> {
+  async all<T>(): Promise<{ results: T[]; success: boolean }> {
     return {
-      results: this.db.selectRows(this.sql, this.values) as unknown as ReadonlyArray<T>,
+      results: this.db.selectRows(this.sql, this.values) as T[],
       success: true,
     };
   }
@@ -125,7 +113,7 @@ class FakeD1Statement implements D1Statement {
   }
 }
 
-class FakeD1 implements D1Like {
+class FakeD1 {
   readonly photos = new Map<string, PhotoRow>();
   readonly audit: AuditRow[] = [];
   /** Every normalised statement seen, in order — useful for cache assertions. */
@@ -135,7 +123,7 @@ class FakeD1 implements D1Like {
   /** When true, `INSERT INTO audit_events` throws like a locked/unavailable D1. */
   failAuditInsert = false;
 
-  prepare(query: string): D1Statement {
+  prepare(query: string): FakeD1Statement {
     const sql = normaliseSql(query);
     this.statements.push(sql);
     return new FakeD1Statement(this, sql);
@@ -206,7 +194,7 @@ class FakeD1 implements D1Like {
 /* R2 fake                                                             */
 /* ------------------------------------------------------------------ */
 
-const r2Object = (text: string, contentType: string): R2ObjectLike => {
+const r2Object = (text: string, contentType: string) => {
   const bytes = encoder.encode(text);
   return {
     body: new ReadableStream<Uint8Array>({
@@ -222,10 +210,10 @@ const r2Object = (text: string, contentType: string): R2ObjectLike => {
   };
 };
 
-class FakeR2 implements R2BucketLike {
+class FakeR2 {
   readonly objects = new Map<string, { text: string; contentType: string }>();
 
-  async get(key: string): Promise<R2ObjectLike | null> {
+  async get(key: string): Promise<ReturnType<typeof r2Object> | null> {
     const object = this.objects.get(key);
     return object === undefined ? null : r2Object(object.text, object.contentType);
   }
@@ -249,7 +237,7 @@ class FakeR2 implements R2BucketLike {
 /* KV fake                                                             */
 /* ------------------------------------------------------------------ */
 
-class FakeKV implements KVLike {
+class FakeKV {
   readonly store = new Map<string, string>();
   /** Every write, with the TTL the Worker asked for (expiry itself is ignored). */
   readonly writes: Array<{ key: string; expirationTtl: number | undefined }> = [];
@@ -272,7 +260,7 @@ class FakeKV implements KVLike {
 /* Queue fakes                                                         */
 /* ------------------------------------------------------------------ */
 
-class FakeQueue implements QueueProducerLike {
+class FakeQueue {
   readonly sent: unknown[] = [];
 
   async send(body: unknown): Promise<void> {
@@ -280,7 +268,7 @@ class FakeQueue implements QueueProducerLike {
   }
 }
 
-class FakeQueueMessage implements QueueMessageLike {
+class FakeQueueMessage {
   readonly body: unknown;
   acks = 0;
   retries = 0;
@@ -298,7 +286,8 @@ class FakeQueueMessage implements QueueMessageLike {
   }
 }
 
-const makeBatch = (...messages: ReadonlyArray<QueueMessageLike>): QueueBatchLike => ({ messages });
+const makeBatch = (...messages: ReadonlyArray<unknown>) =>
+  ({ messages } as unknown as QueueBatch);
 
 /* ------------------------------------------------------------------ */
 /* Durable Object fakes                                                */
@@ -337,22 +326,33 @@ const requestFrom = (
  * Stands in for `DurableObjectNamespace`. One real `Counter` instance per
  * storage per name, exactly like the runtime: the stub's `fetch` delegates to it.
  */
-class FakeDoNamespace implements DurableObjectNamespaceLike {
+class FakeDoNamespace {
   readonly storages = new Map<string, FakeDoStorage>();
   readonly counters = new Map<string, Counter>();
-  envProvider: () => Env = () => {
+  envProvider: () => ApiEnv = () => {
     throw new Error("FakeDoNamespace: env not bound yet");
   };
 
-  idFromName(name: string): DurableObjectIdLike {
-    return { toString: () => name };
+  idFromName(name: string): DurableObjectId {
+    return { toString: () => name } as unknown as DurableObjectId;
   }
 
-  get(id: DurableObjectIdLike): DurableObjectStubLike {
+  getByName(name: string): DurableObjectStub {
+    return this.get(this.idFromName(name));
+  }
+
+  /** Test-side sugar: the typed snapshot RPC for one object name. */
+  snapshot(name: string): Promise<{ count: number; cronFires: number }> {
+    return this.counterFor(name).snapshot();
+  }
+
+  get(id: DurableObjectId): DurableObjectStub {
     const counter = this.counterFor(id.toString());
     return {
-      fetch: (input, init) => counter.fetch(requestFrom(input, init)),
-    };
+      increment: () => counter.increment(),
+      recordCronFire: () => counter.recordCronFire(),
+      snapshot: () => counter.snapshot(),
+    } as unknown as DurableObjectStub;
   }
 
   counterFor(name: string): Counter {
@@ -376,8 +376,16 @@ class FakeDoNamespace implements DurableObjectNamespaceLike {
 /* harness                                                             */
 /* ------------------------------------------------------------------ */
 
+/** Types pulled off the handlers themselves, so tests track the real signatures. */
+type QueueBatch = Parameters<typeof Api.queue>[0];
+type ScheduledArgs = Parameters<typeof Api.scheduled>;
+type ExecutionCtx = NonNullable<ScheduledArgs[2]>;
+
+const fakeCtx = (): ExecutionCtx =>
+  ({ waitUntil: () => {}, passThroughOnException: () => {} }) as unknown as ExecutionCtx;
+
 interface Harness {
-  env: Env;
+  env: ApiEnv;
   r2: FakeR2;
   d1: FakeD1;
   kv: FakeKV;
@@ -391,13 +399,13 @@ const createHarness = (): Harness => {
   const kv = new FakeKV();
   const queue = new FakeQueue();
   const counter = new FakeDoNamespace();
-  const env: Env = {
+  const env = {
     PHOTOS: r2,
     DB: d1,
     CACHE: kv,
     COUNTER: counter,
     EVENTS: queue,
-  };
+  } as unknown as ApiEnv;
   counter.envProvider = () => env;
   return { env, r2, d1, kv, queue, counter };
 };
@@ -405,7 +413,7 @@ const createHarness = (): Harness => {
 let harness: Harness = createHarness();
 
 const fetchWorker = (path: string, init?: RequestInit): Promise<Response> =>
-  Api.fetch(new Request(`https://api.test${path}`, init), harness.env);
+  Api.fetch(new Request(`https://api.test${path}`, init), harness.env, fakeCtx());
 
 const readJson = async <T>(response: Response): Promise<T> => (await response.json()) as T;
 
@@ -436,7 +444,7 @@ describe("GET /health", () => {
     const response = await fetchWorker("/health");
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe("application/json");
     const body = await readJson<{ ok: boolean; time: string }>(response);
     expect(body.ok).toBe(true);
     expect(Number.isNaN(Date.parse(body.time))).toBe(false);
@@ -755,18 +763,16 @@ describe("queue()", () => {
 /* ------------------------------------------------------------------ */
 
 describe("scheduled()", () => {
-  const controller: ScheduledControllerLike = {
+  const controller: ScheduledArgs[0] = {
     cron: "* * * * *",
     scheduledTime: 1_760_000_000_000,
+    noRetry: () => {},
   };
 
   it("bumps the DO cron counter and records a cron.fire row", async () => {
-    await Api.scheduled(controller, harness.env);
+    await Api.scheduled(controller, harness.env, fakeCtx());
 
-    const stub = harness.counter.get(harness.counter.idFromName("global"));
-    const snapshot = await readJson<{ count: number; cronFires: number }>(
-      await stub.fetch("https://counter/snapshot"),
-    );
+    const snapshot = await harness.counter.snapshot("global");
     expect(snapshot).toEqual({ count: 0, cronFires: 1 });
 
     expect(harness.d1.audit).toHaveLength(1);
@@ -775,14 +781,10 @@ describe("scheduled()", () => {
   });
 
   it("accumulates cronFires across fires in DO storage", async () => {
-    await Api.scheduled(controller, harness.env);
-    await Api.scheduled(controller, harness.env);
+    await Api.scheduled(controller, harness.env, fakeCtx());
+    await Api.scheduled(controller, harness.env, fakeCtx());
 
-    const stub = harness.counter.get(harness.counter.idFromName("global"));
-    const snapshot = await readJson<{ cronFires: number }>(
-      await stub.fetch("https://counter/snapshot"),
-    );
-    expect(snapshot.cronFires).toBe(2);
+    expect((await harness.counter.snapshot("global")).cronFires).toBe(2);
   });
 });
 
@@ -791,45 +793,42 @@ describe("scheduled()", () => {
 /* ------------------------------------------------------------------ */
 
 describe("Counter Durable Object", () => {
-  it("increments across calls through the namespace stub", async () => {
-    const stub = harness.counter.get(harness.counter.idFromName("global"));
-    const increment = async (): Promise<Response> =>
-      stub.fetch("https://counter/increment", { method: "POST" });
+  it("increments across RPC calls through the namespace stub", async () => {
+    const stub = harness.counter.get(harness.counter.idFromName("global")) as unknown as {
+      increment: () => Promise<number>;
+    };
 
-    expect(await readJson<{ count: number }>(await increment())).toEqual({ count: 1 });
-    expect((await readJson<{ count: number }>(await increment())).count).toBe(2);
-    expect((await readJson<{ count: number }>(await increment())).count).toBe(3);
+    expect(await stub.increment()).toBe(1);
+    expect(await stub.increment()).toBe(2);
+    expect(await stub.increment()).toBe(3);
   });
 
   it("keeps state in DO storage, so a new instance continues the sequence", async () => {
     const storage = new FakeDoStorage();
     const state = asDoState(storage);
-    const increment = (counter: Counter): Promise<Response> =>
-      counter.fetch(new Request("https://counter/increment"));
-
     const first = new Counter(state, harness.env);
-    expect(await readJson<{ count: number }>(await increment(first))).toMatchObject({ count: 1 });
+    expect(await first.increment()).toBe(1);
 
     // A fresh instance over the *same* storage — what an isolate restart gives you.
     const second = new Counter(state, harness.env);
-    expect(await readJson<{ count: number }>(await increment(second))).toMatchObject({ count: 2 });
+    expect(await second.increment()).toBe(2);
 
     // A fresh storage starts at zero: nothing is held at module scope.
     const other = new Counter(asDoState(new FakeDoStorage()), harness.env);
-    expect(await readJson<{ count: number }>(await increment(other))).toMatchObject({ count: 1 });
+    expect(await other.increment()).toBe(1);
 
     // And the first instance's storage really is the one that moved.
     expect(await storage.get<number>("count")).toBe(2);
   });
 
-  it("returns 404 for an unknown durable object route", async () => {
-    const stub = harness.counter.get(harness.counter.idFromName("global"));
-    const response = await stub.fetch("https://counter/nope");
+  it("reports both counters from a snapshot without mutating them", async () => {
+    const counter = new Counter(asDoState(new FakeDoStorage()), harness.env);
+    await counter.increment();
+    await counter.recordCronFire();
+    await counter.recordCronFire();
 
-    expect(response.status).toBe(404);
-    expect(await readJson<{ error: string }>(response)).toMatchObject({
-      error: "unknown durable object route",
-    });
+    expect(await counter.snapshot()).toEqual({ count: 1, cronFires: 2 });
+    expect(await counter.snapshot()).toEqual({ count: 1, cronFires: 2 });
   });
 });
 

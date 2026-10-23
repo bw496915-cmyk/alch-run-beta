@@ -67,21 +67,31 @@ rg -n "storage\.put\(" -A2 src/ | rg -B2 "storage\.get"         # suspicious rea
 test ! -e scripts/alch.sh                                       # CLI driven from package.json
 ```
 
-Measured baseline before the refactor — every count must reach 0 except the last, which goes
-with its CI step:
+Measured after the refactor (baseline in brackets):
 
 | Gate | Command | Hits |
 | --- | --- | --- |
-| hand-written binding interfaces | `rg -c 'interface \w+Like\|interface Env\b' src/ alchemy.run.ts` | 14 |
-| hand-built JSON responses | `rg -c 'new Response\(' src/` | 2 |
-| URL-string DO RPC | `rg -c 'https://(counter\|do)\b' src/` | 2 |
-| handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: Env\)' src/` | 2 (`fetch`, `scheduled`) |
-| bash wrapper | `test -e scripts/alch.sh` | present |
+| hand-written binding interfaces | `rg -c 'interface \w+Like\|interface Env\b' src/ alchemy.run.ts` | **0** (was 14) |
+| hand-built JSON responses | `rg -n 'new Response\(JSON' src/` | **0** (was 2) — `Response.json` everywhere. One `new Response(body, …)` remains and is correct: it returns an R2 object *stream* with custom headers, which is the platform API, not a JSON hand-roll |
+| URL-string DO RPC | `rg -c 'https://(counter\|do)\b' src/` | **0** (was 2) — the DO exposes typed RPC methods, called as `getByName(…).increment()` |
+| handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: ApiEnv\)' src/` | **0** (was 2) — both take `ctx: ExecutionContext` |
+| bash wrapper | `test -e scripts/alch.sh` | present (goes with its CI step) |
 
-## Refactor backlog (policy applied to this tree)
+**One deviation remains, and it is forced by the compiler:** `ApiEnv` is
+`Cloudflare.InferEnv<typeof bindings>` rather than `InferEnv<typeof Api>`. Applying the helper
+to the Worker hits TS2589 ("type instantiation is excessively deep") the moment a Durable
+Object binding is present, because `DurableObjectLike`'s default `Shape = any` sends the mapped
+type recursive. Same helper, narrower input, identical result — recorded here so nobody
+"fixes" it back.
 
-1. `alchemy.run.ts` — Worker at module scope + `export type WorkerEnv = Cloudflare.InferEnv<typeof Api>`.
-2. `src/Api.ts` — delete the 14 interfaces, type `env` with `WorkerEnv`, take `ctx`, `Response.json`,
-   `blockConcurrencyWhile` around the DO counter, `extends DurableObject`, `getByName`.
-3. Delete `scripts/alch.sh` **and** repoint `.github/workflows/ci.yml`'s plan step at the CLI in the same change; move its flags into `package.json` scripts.
-4. Encode the gates above as a test so the policy is enforced, not just documented.
+## Refactor backlog
+
+Done: interfaces deleted (14 → 0), `env` typed by `InferEnv`, handlers take `ctx`,
+`Response.json`, DO on `extends DurableObject` with `ctx.storage.transaction`, typed RPC
+instead of URL dispatch.
+
+Remaining:
+
+1. Delete `scripts/alch.sh` **and** repoint `.github/workflows/ci.yml`'s plan step at the CLI in
+   the same change; move its flags into `package.json` scripts.
+2. Encode the gates above as a test so the policy is enforced, not just documented.

@@ -10,96 +10,18 @@
  *
  * Handlers: fetch (HTTP), queue (async audit consumer), scheduled (cron).
  *
- * Bindings are described structurally rather than with
- * `@cloudflare/workers-types`, so this type-checks with a plain Node
- * toolchain. Add that package and use the real Cloudflare types (R2Bucket,
- * D1Database, KVNamespace, DurableObjectNamespace, Queue) for the full surface.
+ * `env` is typed by `ApiEnv` from the composition root (`Cloudflare.InferEnv`),
+ * so it is the real `R2Bucket` / `D1Database` / `KVNamespace` /
+ * `DurableObjectNamespace` / `Queue` — not a hand-written approximation.
  */
-
-/* ------------------------------------------------------------------ */
-/* structural binding types                                            */
-/* ------------------------------------------------------------------ */
 
 import { DurableObject } from "cloudflare:workers";
 
-export interface R2ObjectLike {
-  readonly body: ReadableStream;
-  readonly size: number;
-  readonly httpMetadata?: { readonly contentType?: string };
-  text(): Promise<string>;
-}
+import type { ApiEnv } from "../alchemy.run.ts";
 
-export interface R2BucketLike {
-  get(key: string): Promise<R2ObjectLike | null>;
-  put(
-    key: string,
-    value: string,
-    options?: { httpMetadata?: { contentType: string } },
-  ): Promise<unknown>;
-  delete(key: string): Promise<void>;
-}
-
-export interface D1Result<T> {
-  readonly results: ReadonlyArray<T>;
-  readonly success: boolean;
-}
-
-export interface D1Statement {
-  bind(...values: ReadonlyArray<string | number>): D1Statement;
-  all<T>(): Promise<D1Result<T>>;
-  run(): Promise<{ readonly success: boolean; readonly meta: Record<string, unknown> }>;
-  first<T>(): Promise<T | null>;
-}
-
-export interface D1Like {
-  prepare(query: string): D1Statement;
-}
-
-export interface KVLike {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
-  delete(key: string): Promise<void>;
-}
-
-export interface DurableObjectStubLike {
-  fetch(input: string | Request, init?: { method?: string; body?: string }): Promise<Response>;
-}
-
-export interface DurableObjectIdLike {
-  toString(): string;
-}
-
-export interface DurableObjectNamespaceLike {
-  idFromName(name: string): DurableObjectIdLike;
-  get(id: DurableObjectIdLike): DurableObjectStubLike;
-}
-
-export interface QueueProducerLike {
-  send(body: unknown): Promise<void>;
-}
-
-export interface QueueMessageLike {
-  readonly body: unknown;
-  ack(): void;
-  retry(): void;
-}
-
-export interface QueueBatchLike {
-  readonly messages: ReadonlyArray<QueueMessageLike>;
-}
-
-export interface ScheduledControllerLike {
-  readonly cron: string;
-  readonly scheduledTime: number;
-}
-
-export interface Env {
-  readonly PHOTOS: R2BucketLike;
-  readonly DB: D1Like;
-  readonly CACHE: KVLike;
-  readonly COUNTER: DurableObjectNamespaceLike;
-  readonly EVENTS: QueueProducerLike;
-}
+/* ------------------------------------------------------------------ */
+/* domain shapes (ours, not Cloudflare's)                              */
+/* ------------------------------------------------------------------ */
 
 interface PhotoRow {
   readonly key: string;
@@ -132,10 +54,7 @@ const CACHE_TTL_SECONDS = 60;
 const COUNTER_NAME = "global";
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
-  new Response(JSON.stringify(body, null, 2), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers },
-  });
+  Response.json(body, { status, headers });
 
 /** A KV value that no longer parses is stale cache, not a request failure. */
 const parseCachedIndex = (raw: string): ReadonlyArray<PhotoRow> | null => {
@@ -147,15 +66,15 @@ const parseCachedIndex = (raw: string): ReadonlyArray<PhotoRow> | null => {
   }
 };
 
-const listPhotos = async (env: Env): Promise<ReadonlyArray<PhotoRow>> => {
-  const { results } = await env.DB.prepare(
+const listPhotos = async (env: ApiEnv): Promise<ReadonlyArray<PhotoRow>> => {
+  const db: D1Database = env.DB;
+  const { results } = await db.prepare(
     "SELECT key, bytes, content_type, created_at FROM photos ORDER BY created_at DESC LIMIT 100",
   ).all<PhotoRow>();
   return results;
 };
 
-const counterStub = (env: Env, name = COUNTER_NAME): DurableObjectStubLike =>
-  env.COUNTER.get(env.COUNTER.idFromName(name));
+const counterStub = (env: ApiEnv, name = COUNTER_NAME) => env.COUNTER.getByName(name);
 
 /* ------------------------------------------------------------------ */
 /* Durable Object                                                      */
@@ -168,9 +87,9 @@ const counterStub = (env: Env, name = COUNTER_NAME): DurableObjectStubLike =>
  *
  * State lives in DO storage, so it survives Worker deployments and isolates.
  */
-export class Counter extends DurableObject<Env> {
+export class Counter extends DurableObject<ApiEnv> {
   /**
-   * Read-modify-write under a storage transaction: two concurrent requests both
+   * Read-modify-write under a storage transaction: concurrent requests all
    * address the "global" object, and a plain get-then-put can lose an increment.
    */
   private async bump(field: string, by = 1): Promise<number> {
@@ -181,25 +100,22 @@ export class Counter extends DurableObject<Env> {
     });
   }
 
-  override async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+  /** Called over DO RPC: `env.COUNTER.getByName("global").increment()`. */
+  async increment(): Promise<number> {
+    return this.bump("count");
+  }
 
-    switch (url.pathname) {
-      case "/increment":
-        return json({ count: await this.bump("count") });
-      case "/cron":
-        return json({
-          cronFires: await this.bump("cronFires"),
-          lastCron: new Date().toISOString(),
-        });
-      case "/snapshot":
-        return json({
-          count: (await this.ctx.storage.get<number>("count")) ?? 0,
-          cronFires: (await this.ctx.storage.get<number>("cronFires")) ?? 0,
-        });
-      default:
-        return json({ error: "unknown durable object route", path: url.pathname }, 404);
-    }
+  /** Records one cron fire and returns the running total. */
+  async recordCronFire(): Promise<number> {
+    return this.bump("cronFires");
+  }
+
+  /** Both counters, without mutating anything. */
+  async snapshot(): Promise<{ count: number; cronFires: number }> {
+    return {
+      count: (await this.ctx.storage.get<number>("count")) ?? 0,
+      cronFires: (await this.ctx.storage.get<number>("cronFires")) ?? 0,
+    };
   }
 }
 
@@ -208,7 +124,7 @@ export class Counter extends DurableObject<Env> {
 /* ------------------------------------------------------------------ */
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: ApiEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
@@ -218,14 +134,12 @@ export default {
 
     // GET /stats -> Durable Object counters + audit count (three services)
     if (path === "/stats" && request.method === "GET") {
-      const stub = counterStub(env);
-      const counterResponse = await stub.fetch("https://counter/increment", { method: "POST" });
-      const counters = (await counterResponse.json()) as { count: number };
+      const requests = await counterStub(env).increment();
       const audit = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM audit_events",
       ).first<{ n: number }>();
       return json({
-        durableObject: { name: COUNTER_NAME, requests: counters.count },
+        durableObject: { name: COUNTER_NAME, requests },
         d1: { auditEvents: audit?.n ?? 0 },
       });
     }
@@ -333,7 +247,7 @@ export default {
   },
 
   /** Queue consumer: drains the audit pipeline into D1. */
-  async queue(batch: QueueBatchLike, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<PhotoEvent>, env: ApiEnv): Promise<void> {
     for (const message of batch.messages) {
       try {
         const event = message.body as PhotoEvent;
@@ -350,9 +264,8 @@ export default {
   },
 
   /** Cron handler: records each fire in the Durable Object. */
-  async scheduled(controller: ScheduledControllerLike, env: Env): Promise<void> {
-    const stub = counterStub(env);
-    await stub.fetch("https://counter/cron", { method: "POST" });
+  async scheduled(controller: ScheduledController, env: ApiEnv, ctx: ExecutionContext): Promise<void> {
+    await counterStub(env).recordCronFire();
     await env.DB.prepare(
       "INSERT INTO audit_events (id, type, detail, at) VALUES (?, ?, ?, ?)",
     )
