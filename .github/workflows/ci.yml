@@ -37,9 +37,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
       # Scratch space is an environment failure, not a network one: a read-only
       # /tmp fails at the write and looks like an empty response further down.
-      # Probe before anything else so a degraded container is named, not guessed.
+      # Runs under the pinned Node (the script is TypeScript, executed by
+      # `node`) and before anything is installed, so a degraded container is
+      # named, not guessed.
       - name: Environment preflight (scratch writability)
         run: node scripts/preflight.ts
 
@@ -52,16 +64,6 @@ jobs:
             echo "::error::test/manifest.test.ts is missing - the suite can shrink silently"
             exit 1
           }
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
