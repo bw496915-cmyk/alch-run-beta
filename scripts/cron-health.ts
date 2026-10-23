@@ -151,6 +151,16 @@ const delivered: Delivery[] = (telemetry.events?.events ?? [])
 
 const verdict = evaluate({ configured, delivered, to, maxAgeHours: MAX_AGE_HOURS, windowHours: WINDOW_HOURS });
 
+/**
+ * UTC, and hand-rolled on purpose.
+ *
+ * `alchemy/Cli/Format` ships the canonical equivalent (`formatLocalTimestamp`,
+ * `formatElapsed`, `TAIL_COLORS`), reachable through the package's `./*` export —
+ * but this script is **dependency-free** and CI runs it *before* `pnpm install`
+ * (the cron job installs nothing at all), so importing it would fail exactly when
+ * the check is needed. UTC (not local) also lines the output up with the
+ * platform's telemetry timestamps. See `CONVENTIONS.md` deny-list note.
+ */
 const fmt = (date: Date): string => `${date.toISOString().slice(0, 19)}Z`;
 
 console.log(`worker     ${worker}`);

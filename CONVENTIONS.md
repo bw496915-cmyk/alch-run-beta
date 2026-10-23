@@ -89,6 +89,17 @@ must carry a verified closure (`state_reason` plus the PR/commit) and a concrete
 > choice, not an oversight; the router is the instrument if the API grows well past that, or if the
 > repo ever goes Effect-native. See `REVIEW-2026-10-23.md` §4.
 
+> **Deny-list note — output formatting (2026-10-23).** Alchemy ships a canonical formatter,
+> `alchemy/Cli/Format` (`formatLocalTimestamp`, `formatElapsed`, `TAIL_COLORS`) — identical in this
+> pin and reachable through the package's `./*` export, even though only `./Cli` and `./Cli/CliKit`
+> are named. The `scripts/` here render timestamps themselves, and that is a **recorded constraint,
+> not a hand-roll**: every script is dependency-free (only `node:*` and local modules) because CI
+> runs `preflight`, `cron-health` and `queue-health` *before* `pnpm install` — the cron job installs
+> nothing at all — so an `import … from "alchemy/Cli/Format"` would fail exactly when the check is
+> most needed. They print UTC, not `formatLocalTimestamp`'s local time, so their output lines up with
+> the platform's telemetry timestamps. Prefer the Alchemy helper anywhere `node_modules` is
+> guaranteed (runtime code, tests); keep the scripts import-free.
+
 ## Gates
 
 These are enforced by `test/policy.test.ts` (part of `pnpm test`), in three layers:
