@@ -1,10 +1,8 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
-import type { Counter } from "./src/Api.ts";
-
+import Api from "./src/Api.ts";
 import { Cache } from "./src/Cache.ts";
 import { Db } from "./src/Db.ts";
 import { Photos } from "./src/Photos.ts";
@@ -13,56 +11,16 @@ import { Events } from "./src/QueueEvents.ts";
 /**
  * Composition root.
  *
- * The Worker is declared at module scope — the documented async-Worker shape —
- * so `ApiEnv` below can name the bindings the runtime actually supplies. That
- * type is what `src/Api.ts` uses instead of hand-written interfaces; without
- * `@cloudflare/workers-types` in `tsconfig.types` it would silently be `any`.
- *
- * Pinned to alchemy 2.0.0-beta.83, which still ships every provider inside the
- * main package (`alchemy/Cloudflare`, ...). See MIGRATION-beta84.md for the
- * import rewrite that 2.0.0-beta.84 requires.
+ * The Worker is an Effect-native class (`src/Api.ts`), so it declares and binds
+ * its own resources in its Init phase; the Stack yields those resources to keep
+ * them in the plan and to surface their names as outputs. The queue consumer and
+ * the cron are wired *inside* the Worker as event sources, so there is no
+ * `Cloudflare.Queues.Consumer` and no `crons` prop here any more.
  */
-const bindings = {
-  PHOTOS: Photos,
-  DB: Db,
-  CACHE: Cache,
-  EVENTS: Events,
-  // Durable Object namespace; the class is exported by src/Api.ts.
-  COUNTER: Cloudflare.DurableObject<Counter>("Counter", { className: "Counter" }),
-  // Worker secret for the admin endpoints (REVIEW §4 #5): a `Config.Redacted`
-  // resolves at deploy time and binds as `secret_text`. Sourced from
-  // `$ADMIN_TOKEN` locally and from the repo secret in CI.
-  ADMIN_TOKEN: Config.Redacted("ADMIN_TOKEN"),
-};
-
-export const Api = Cloudflare.Worker("Api", {
-  main: "./src/Api.ts",
-  env: bindings,
-  // Daily housekeeping cron; the Worker's scheduled() handler records fires.
-  crons: ["0 3 * * *"],
-  // Workers Cache off: this API returns live D1 contents.
-  cache: { enabled: false },
-});
-
-/**
- * `env` as the runtime delivers it: real `R2Bucket`, `D1Database`, `KVNamespace`,
- * `Queue`, `DurableObjectNamespace`.
- *
- * Applied to the Worker — the shape the canonical async example uses
- * (`examples/cloudflare-worker-async`: `InferEnv<typeof Worker>`). An earlier
- * revision applied it to the `bindings` object, recorded as a TS2589 workaround;
- * that is no longer needed (re-checked 2026-10-23 — the Worker form compiles
- * clean, and `test/policy.test.ts` layer 3 still proves every member is the real
- * platform type, not `any`). See `CONVENTIONS.md`.
- */
-export type ApiEnv = Cloudflare.InferEnv<typeof Api>;
-
 export default Alchemy.Stack(
   "AlchRunBeta",
   {
     providers: Cloudflare.providers(),
-    // Local state file under .alchemy/ — the documented default, nothing to
-    // bootstrap. Swap for `Cloudflare.state()` for shared/CI state.
     state: Alchemy.localState(),
   },
   Effect.gen(function* () {
@@ -71,17 +29,9 @@ export default Alchemy.Stack(
     const db = yield* Db;
     const cache = yield* Cache;
     const events = yield* Events;
-    // Failed audit messages land here after `maxRetries` instead of vanishing
-    // (REVIEW §4 #3).
-    const deadLetter = yield* Cloudflare.Queues.Queue("AuditDeadLetter");
-
-    // Attach the Worker's queue() handler to the queue as its consumer.
-    const consumer = yield* Cloudflare.Queues.Consumer("ApiAuditConsumer", {
-      queueId: events.queueId,
-      scriptName: worker.workerName,
-      deadLetterQueue: deadLetter.queueName,
-      settings: { batchSize: 10, maxRetries: 3, maxWaitTimeMs: 5_000 },
-    });
+    // The Worker's Init declares its own `AuditDeadLetter` (with an explicit,
+    // stage-unique name so its consumer can reference it), so the Stack must not
+    // declare a second one under the same logical id with different props.
 
     return {
       url: worker.url.as<string>(),
@@ -89,12 +39,6 @@ export default Alchemy.Stack(
       databaseName: db.databaseName,
       kvNamespaceId: cache.namespaceId,
       queueName: events.queueName,
-      deadLetterQueueName: deadLetter.queueName,
-      consumerId: consumer.consumerId,
-      crons: worker.crons,
-      // `worker.versionId` / `worker.deploymentId` exist on the type but stay
-      // undefined on a non-versioned deploy like this one, so they are not
-      // surfaced here (beta.84 populates them for versioned deploys).
     };
   }),
 );

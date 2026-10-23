@@ -35,8 +35,10 @@ stage that starts with `test_` (anything else is retained by `Db`/`Photos`).
 
 ## Ground rules
 
-- Use the pinned framework's documented shapes; a hand-rolled substitute is denied —
-  `CONVENTIONS.md` is the policy, `test/policy.test.ts` enforces it.
+- This repo is **Effect-native**: `Cloudflare.Worker<Self>()(id, { main: import.meta.url }, …)`,
+  bindings as `yield*`ed services, the queue consumer and cron as event sources. Use the pinned
+  framework's documented shapes; a hand-rolled substitute is denied — `CONVENTIONS.md` is the
+  policy, `test/policy.test.ts` enforces it.
 - `pnpm` here, not npm/yarn/npx. Run repo binaries as `./node_modules/.bin/<tool>`.
 - Never commit `.env`, `.alchemy/`, or a token; never force-push — `main` is protected
   (`deletion` + `non_fast_forward`).

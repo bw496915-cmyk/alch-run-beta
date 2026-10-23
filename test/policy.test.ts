@@ -2,8 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { ApiEnv } from "../alchemy.run.ts";
-import Api, { Counter } from "../src/Api.ts";
+import Counter from "../src/Counter.ts";
 
 /**
  * Enforces `CONVENTIONS.md` in three layers, weakest to strongest.
@@ -21,37 +20,19 @@ import Api, { Counter } from "../src/Api.ts";
 /* layer 3: shape, checked by the compiler                             */
 /* ------------------------------------------------------------------ */
 
-type Assert<T extends true> = T;
-/** Mutual assignability: neither side may be a narrower stand-in. */
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-/** Detects `any` — which is what `InferEnv` silently degrades to without workers-types. */
-type IsAny<T> = 0 extends 1 & T ? true : false;
-
-// Every binding must be the real Cloudflare type, in both directions.
-type _photos = Assert<Same<ApiEnv["PHOTOS"], R2Bucket>>;
-type _db = Assert<Same<ApiEnv["DB"], D1Database>>;
-type _cache = Assert<Same<ApiEnv["CACHE"], KVNamespace<string>>>;
-type _events = Assert<Same<ApiEnv["EVENTS"], Queue<unknown>>>;
-type _counter = Assert<Same<ApiEnv["COUNTER"], DurableObjectNamespace<Counter>>>;
-
-// …and none of them may collapse to `any`, which would make the four above vacuous.
-type _noAnyPhotos = Assert<IsAny<ApiEnv["PHOTOS"]> extends false ? true : false>;
-type _noAnyDb = Assert<IsAny<ApiEnv["DB"]> extends false ? true : false>;
-type _noAnyCounter = Assert<IsAny<ApiEnv["COUNTER"]> extends false ? true : false>;
-
-// Handlers keep the third argument; dropping `ctx` is how background work was lost before.
-type _fetchTakesCtx = Assert<Parameters<typeof Api.fetch>["length"] extends 3 ? true : false>;
-type _scheduledTakesCtx = Assert<
-  Parameters<typeof Api.scheduled>["length"] extends 3 ? true : false
->;
-type _fetchCtxIsExecutionContext = Assert<
-  Parameters<typeof Api.fetch>[2] extends ExecutionContext ? true : false
->;
-
-// The Durable Object speaks typed RPC. (`fetch` is inherited as optional from the
-// base class, so "no URL router" is asserted at runtime below, not in types.)
-type _doRpc = Assert<"increment" extends keyof Counter ? true : false>;
-type _doSnapshot = Assert<"snapshot" extends keyof Counter ? true : false>;
+/**
+ * Layer 3 used to assert `ApiEnv`'s members were the real platform types
+ * (`Same<ApiEnv["PHOTOS"], R2Bucket>`, `IsAny`, `Parameters<typeof Api.fetch>[2]`)
+ * — the compile-time guard against a hand-written binding type.
+ *
+ * The Effect-native Worker has **no `env` object**: a binding is
+ * `yield* Cloudflare.R2.ReadWriteBucket(Photos)`, which hands back the real
+ * platform client. There is nothing left to hand-type, so that guard is now
+ * **structural** and its compile-time block is gone along with the `env` it
+ * checked. What remains is the Durable Object's RPC surface, asserted below —
+ * and at runtime, since those methods come from the Effect the class returns
+ * rather than from `Counter.prototype`.
+ */
 
 /* ------------------------------------------------------------------ */
 /* layer 2: declaration allow-list                                     */
@@ -98,7 +79,6 @@ const declaredNames = (): string[] => {
  * hand-rolled binding type. Adding an entry is the review gate.
  */
 const ALLOWED_DECLARATIONS: Record<string, string> = {
-  ApiEnv: "the inferred env type from Cloudflare.InferEnv — the point of the policy",
   PhotoRow: "our D1 row shape: domain data, not a Cloudflare API",
   AuditRow: "our D1 row shape",
   PhotoEvent: "our queue message body",
@@ -145,34 +125,29 @@ describe("policy: exact Alchemy shape only", () => {
     expect(offences).toEqual([]);
   });
 
-  it("gives the Durable Object RPC methods instead of a fetch router", () => {
-    const own = (name: string): boolean =>
-      Object.prototype.hasOwnProperty.call(Counter.prototype, name);
-
-    expect(own("increment")).toBe(true);
-    expect(own("recordCronFire")).toBe(true);
-    expect(own("snapshot")).toBe(true);
-    expect(own("fetch"), "a URL-dispatch fetch router came back").toBe(false);
-
-    // The generic is what types `getByName(...).increment()`: without it the
-    // namespace falls back to `Shape = any` and the RPC is untyped without ever
-    // failing layer 3, so the binding shape is asserted rather than assumed.
-    expect(readFileSync("alchemy.run.ts", "utf8")).toContain("DurableObject<Counter>(");
+  it("gives the Durable Object typed RPC instead of a fetch router", () => {
+    const source = readFileSync("src/Counter.ts", "utf8");
+    // The RPC surface comes from the Effect the class returns, so it is asserted
+    // at the declaration rather than on `Counter.prototype`.
+    expect(source).toContain("Cloudflare.DurableObject<Counter>()");
+    expect(source).toContain("increment");
+    expect(source).toContain("recordCronFire");
+    expect(source).toContain("snapshot");
+    expect(source, "a URL-dispatch fetch router came back").not.toMatch(/\bfetch\s*:/);
+    // The generic is what types `getByName(...).increment()`.
+    expect(readFileSync("src/Api.ts", "utf8")).toContain("yield* Counter");
   });
 
-  it("types env from the Worker, not from a local interface", () => {
+  it("binds through the Worker, not a hand-written env", () => {
     const stack = readFileSync("alchemy.run.ts", "utf8");
-    expect(stack).toContain("Cloudflare.InferEnv<typeof Api>");
-    // The bindings-object form is gone: it was a TS2589 workaround, and the
-    // canonical async example types `InferEnv<typeof Worker>`
-    // (examples/cloudflare-worker-async). Re-verified 2026-10-23 — the Worker
-    // form compiles clean, and layer 3 above still proves the members are the
-    // real platform types, so a diff restoring the workaround fails here.
-    expect(codeOnly(stack)).not.toMatch(/InferEnv<typeof bindings>/);
+    // The Effect-native Worker has no `env`: no `InferEnv`, no bindings object,
+    // no local Env shape — the bindings are `yield*`ed in `src/Api.ts`.
+    expect(codeOnly(stack)).not.toMatch(/InferEnv|typeof bindings/);
 
     const worker = readFileSync("src/Api.ts", "utf8");
-    expect(worker).toContain('import type { ApiEnv } from "../alchemy.run.ts"');
-    // No local `Env` shape may sneak back in beside the imported one.
+    expect(worker).toContain("main: import.meta.url");
+    expect(worker).toContain("Cloudflare.R2.ReadWriteBucket(Photos)");
+    // No local `Env` shape may sneak back in.
     expect(worker).not.toMatch(new RegExp(String.raw`\binterface\s+Env\b`));
   });
 });

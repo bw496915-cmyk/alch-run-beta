@@ -23,7 +23,7 @@ its first redeploy (`MIGRATION-beta84.md` §"One-way door"; asserted by `test/do
 
 ---
 
-## Allow-list — documented async-worker shapes (do not "modernise" these)
+## Allow-list — the documented async-worker shapes (reference; this repo is Effect-native)
 
 | Shape | Where it is documented |
 | --- | --- |
@@ -87,12 +87,12 @@ must carry a verified closure (`state_reason` plus the PR/commit) and a concrete
 | 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI (done, wrapper deleted with its CI step) | CLI page |
 | 9 | `if (path === "/x" && request.method === "GET")` chains growing past ~4 routes | keep the small chain; past that, an Effect-native router (`HttpRouter` / `HttpApi`) is the documented instrument | APIs pages |
 
-> **Deny-list #9, decided (2026-10-23, after the attribution audit).** This repo keeps the async
-> `if (path === …)` chain **on purpose**: the async-Worker style is the allow-listed shape, and
-> adopting `HttpRouter` / `HttpApi` would move the Worker to the Effect-native style — changing the
-> allow-list, the three policy gates, and the DO/queue wiring. The chain (~8 branches) is a recorded
-> choice, not an oversight; the router is the instrument if the API grows well past that, or if the
-> repo ever goes Effect-native. See `REVIEW-2026-10-23.md` §4.
+> **Deny-list #9 (revisited 2026-10-23, after the Effect-native migration).** The route chain is
+> still hand-written — now inside the Effect-native `fetch` (`if (path === …)` over
+> `HttpServerRequest`), where the earlier note kept it *because the Worker was async*. The
+> migration removed that reason but not the chain: `HttpRouter` / `HttpApi`
+> (`alchemy.run/cloudflare/apis/effect-http-api`) is the documented instrument, and the chain
+> (~8 branches) is now a recorded **intermediate** rather than a settled choice.
 
 > **Deny-list note — output formatting (2026-10-23).** The `scripts/` used to render timestamps by
 > hand. They now use the canonical formatter, `alchemy/Cli/Format` (`formatLocalTimestamp`; it also
@@ -109,7 +109,7 @@ These are enforced by `test/policy.test.ts` (part of `pnpm test`), in three laye
 
 | Layer | Mechanism | Fails when |
 | --- | --- | --- |
-| 3. Shape | compile-time: every `ApiEnv` member must be mutually assignable with the real `R2Bucket` / `D1Database` / `KVNamespace<string>` / `Queue<unknown>` / `DurableObjectNamespace<Counter>`, each checked for `any` collapse; `fetch`/`scheduled` must take a third `ExecutionContext` parameter; `Counter` must expose `increment`/`snapshot` | someone replaces the inferred env with a stand-in — **whatever it is called** |
+| 3. Shape | **structural**: an Effect-native Worker has no `env`, so a hand-written binding type cannot arise — a binding is `yield* R2.ReadWriteBucket(Photos)` and hands back the real client. The Durable Object's RPC surface is asserted at its declaration (`Cloudflare.DurableObject<Counter>()` + `increment`/`recordCronFire`/`snapshot`, and no `fetch`) | the shape cannot be faked by naming — there is nothing to name |
 | 2. Existence | every `interface`/`type` declaration in `src/` and `alchemy.run.ts` must appear in `ALLOWED_DECLARATIONS`, each with a written reason | **any** new declaration appears, or an allow-list entry goes stale |
 | 1. Behaviour | greps for a `…Like` stand-in, `new Response(JSON.stringify`, and `https://counter`-style RPC | one of those specific patterns returns |
 
@@ -149,15 +149,11 @@ Measured after the refactor (baseline in brackets):
 | handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: ApiEnv\)' src/` | **0** (was 2) — both take `ctx: ExecutionContext` |
 | bash wrapper | `test -e scripts/alch.sh` | **gone** — the CLI is driven from `package.json` scripts, and `.github/workflows/ci.yml` calls `alchemy plan` directly |
 
-**The TS2589 deviation is gone (re-checked 2026-10-23).** `ApiEnv` was
-`Cloudflare.InferEnv<typeof bindings>` because applying the helper to the Worker was recorded as
-hitting TS2589 ("type instantiation is excessively deep") once a Durable Object binding was
-present, `DurableObjectLike`'s default `Shape = any` sending the mapped type recursive. Tested
-against the canonical async example (`examples/cloudflare-worker-async`, which types
-`InferEnv<typeof Worker>`): the Worker form now compiles clean, and `test/policy.test.ts` layer 3
-still proves every member is the real platform type and not `any`. The file is back to
-`InferEnv<typeof Api>`, and the policy test pins *that* — so a diff restoring the bindings form
-fails there instead of shipping.
+**`env` typing is moot (2026-10-23).** An Effect-native Worker has **no `env` object**: a binding
+is `yield* Cloudflare.R2.ReadWriteBucket(Photos)`, which hands back the real platform client. There
+is nothing to hand-type and no `InferEnv` to apply, so the earlier TS2589 workaround (typing
+`ApiEnv` from the bindings object rather than from the Worker) went with it, and `test/policy.test.ts`
+no longer asserts `ApiEnv` at all — the guarantee is **structural** now (see §Gates layer 3).
 
 ## Refactor backlog
 

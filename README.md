@@ -21,10 +21,11 @@ versions](#pinned-versions) · [Agents](#working-with-an-ai-coding-agent) · [Li
 ```
 alchemy.run.ts            composition root: Stack + providers + state + outputs
 migrations/               0001_init.sql (photos), 0002_audit.sql (audit_events)
-src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Counter DO class
+src/Api.ts                the Worker (Effect-native): fetch + queue consumer + cron, routes
+src/Counter.ts            the Durable Object: typed RPC counters, storage.transaction
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
-test/                     eight suites: api, cron-health, docs, flags, manifest, policy, preflight, queue-health
+test/                     eight suites: api (dev-mode), cron-health, docs, flags, manifest, policy, preflight, queue-health
 e2e/stack.test.ts         deployed-stack suite: deploys, drives the live Worker, destroys (pnpm test:e2e)
 scripts/preflight.ts      session preflight: probes scratch space, reports degraded
 stacks/github.ts          CI credentials as code: mints a scoped token, writes repo secrets
@@ -55,15 +56,15 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `PUT /photos/:key` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
 | `DELETE /photos/:key` | R2 + D1 + KV | Removes object + row, busts cache |
 
-Three handlers: `fetch` (above), `queue` (audit consumer, per-message `ack`/`retry`, attached
-by `Queues.Consumer({ queueId, scriptName: worker.workerName, deadLetterQueue })`), `scheduled`
-(`0 3 * * *`, proven to fire).
+Effect-native: `src/Api.ts` **is** the Worker (`main: import.meta.url`), its bindings are
+`yield*`ed services, and the queue consumer (`consumeQueueMessages`) and the cron
+(`Workers.cron`, `0 3 * * *`, proven to fire) are event sources — `Platform.Main` carries
+`fetch` only, so they cannot be default-export handlers.
 
-The `Counter` Durable Object is exported from `src/Api.ts`, extends `DurableObject` from
-`cloudflare:workers` (the documented async-Worker shape), and is bound with
-`Cloudflare.DurableObject<Counter>("Counter", { className: "Counter" })` so its **methods are
-typed RPC** — `getByName("global").increment()` — with no URL-string dispatch. Increments run
-inside `ctx.storage.transaction`, so concurrent `/stats` calls cannot lose one.
+The `Counter` Durable Object lives in `src/Counter.ts`, extends
+`Cloudflare.DurableObject<Counter>()` (Effect-native), and is bound by `yield* Counter` so its
+**methods are typed RPC** — `counters.getByName("global").increment()` — with no URL-string
+dispatch. Increments run inside `storage.transaction`, so concurrent `/stats` calls cannot lose one.
 
 ```bash
 URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev

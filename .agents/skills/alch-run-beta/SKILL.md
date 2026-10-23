@@ -27,18 +27,21 @@ on the new pin must go out at **100% traffic** or it fails with `WorkerVersionCo
 
 ## Shape — `CONVENTIONS.md` is binding
 
-Async-Worker style is the allow-listed shape. Do **not** hand-roll what the platform provides:
+This repo is **Effect-native**: `Cloudflare.Worker<Api>()("Api", { main: import.meta.url }, …)` with
+bindings as `yield*`ed services, the queue consumer and the cron as event sources, and
+`HttpServerResponse` for every reply. Do **not** hand-roll what the platform provides:
 
-- no hand-written binding types (`…Like` interfaces) — `env` is `Cloudflare.InferEnv<typeof Api>`;
-- `Response.json` over `new Response(JSON.stringify(...))`; the one `new Response(object.body, …)`
-  streams an R2 object on purpose;
-- typed DO RPC (`getByName(...).increment()`), never a `fetch` router on the DO;
-- DO read-modify-write inside `ctx.storage.transaction`;
-- `fetch`/`scheduled` take `ctx: ExecutionContext`;
-- per-message `queue` `ack()`/`retry()` (allow-listed), not a whole-body try/catch.
+- no hand-written binding types — there is no `env` to type, because a binding is
+  `yield* Cloudflare.R2.ReadWriteBucket(Photos)` and hands back the real client;
+- `HttpServerResponse.json` over `new Response(JSON.stringify(...))`;
+- typed DO RPC (`counters.getByName("global").increment()`), never a `fetch` router on the DO;
+- DO read-modify-write inside `storage.transaction`;
+- the queue consumer and the cron go through `consumeQueueMessages` / `Workers.cron` —
+  `Platform.Main` carries `fetch` only, so they cannot be default-export handlers.
 
-The policy is enforced by `test/policy.test.ts` in three layers; adding a `src/` declaration
-without a justified `ALLOWED_DECLARATIONS` entry fails.
+The async-Worker shapes stay **allow-listed** (`CONVENTIONS.md`): they are the canonical other
+example, so reverting is not a violation — but nothing here uses them. The policy is enforced by
+`test/policy.test.ts`.
 
 ## Gates (run all four)
 

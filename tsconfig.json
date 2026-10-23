@@ -30,6 +30,7 @@
     "e2e/**/*.ts",
     "scripts/**/*.ts",
     "vitest.config.ts",
+    "vitest.dev.config.ts",
     "vitest.e2e.config.ts"
   ]
 }

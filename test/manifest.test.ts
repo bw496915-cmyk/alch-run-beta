@@ -49,14 +49,13 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
 ];
 
 /**
- * The floor, not the current count: 54 when this file landed (41 + preflight's
- * 5 + the five envelope cases + these three), raised to 55 with the
- * pin/workaround guard in `docs.test.ts`, to 63 with `flags.test.ts` (7) and the
- * queue-redelivery case, and to 74 as the queue-health, cron-health and docs
- * suites grew. Raise it deliberately when adding tests; lowering it is the
- * review gate.
+ * The floor, not the current count. It **dropped** from 74 to 42 when the API
+ * suite moved from 32 unit tests over hand-rolled in-memory fakes to dev-mode
+ * HTTP tests against a locally-deployed stack (fewer, broader assertions — the
+ * bindings are real). Raise it deliberately when adding tests; lowering it is
+ * the review gate.
  */
-const MIN_TESTS = 74;
+const MIN_TESTS = 41;
 
 /** A suite's own declarations: two-space `it(` / `test(` at the start of a line. */
 const DECLARED_TEST = /^ {2}(?:it|test)\(/gm;
