@@ -33,7 +33,7 @@ CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gat
 MIGRATION-beta84.md       the diff this tree needs when beta.84 publishes
 UPGRADE.md                what to do when beta.84 publishes
 AUDIT-2026-10-23.md       ground truth + attribution: claim→artifact→verdict, owners
-REVIEW-2026-10-23.md      shape audit, ranked layers, incidents, and the 15 rules
+REVIEW-2026-10-23.md      shape audit, ranked layers, incidents, rules, unused tooling
 CRON-FINDINGS.md          the cron measurement-window finding
 .alchemy/                 local state + dev logs (gitignored)
 ```
