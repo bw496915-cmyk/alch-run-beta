@@ -29,8 +29,9 @@ export default Alchemy.Stack(
     const db = yield* Db;
     const cache = yield* Cache;
     const events = yield* Events;
-    // Failed audit messages land here after `maxRetries` instead of vanishing.
-    const deadLetter = yield* Cloudflare.Queues.Queue("AuditDeadLetter");
+    // The Worker's Init declares its own `AuditDeadLetter` (with an explicit,
+    // stage-unique name so its consumer can reference it), so the Stack must not
+    // declare a second one under the same logical id with different props.
 
     return {
       url: worker.url.as<string>(),
@@ -38,7 +39,6 @@ export default Alchemy.Stack(
       databaseName: db.databaseName,
       kvNamespaceId: cache.namespaceId,
       queueName: events.queueName,
-      deadLetterQueueName: deadLetter.queueName,
     };
   }),
 );

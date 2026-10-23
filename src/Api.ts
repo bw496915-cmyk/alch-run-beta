@@ -1,3 +1,4 @@
+import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -66,7 +67,15 @@ export default class Api extends Cloudflare.Worker<Api>()(
     const events = yield* Events;
     const queue = yield* Cloudflare.Queues.WriteQueue(events);
     const counters = yield* Counter;
-    const deadLetter = yield* Cloudflare.Queues.Queue("AuditDeadLetter");
+    // The event-source consumer's `deadLetterQueue` is a plain `string`, not an
+    // `Input<string>`, so it cannot take the generated `queueName` the way the
+    // async `Queues.Consumer` resource can (a Resource's props are Input-wrapped).
+    // So the queue gets an explicit name — built here to stay stage-unique —
+    // and the consumer is handed the same literal. Without this the DLQ resource
+    // would exist but nothing would park a poison message on it.
+    const { stage } = yield* Alchemy.Stack;
+    const deadLetterName = `auditdeadletter-${stage}`;
+    yield* Cloudflare.Queues.Queue("AuditDeadLetter", { name: deadLetterName });
     // `Config.Redacted` registers the binding at deploy time and yields the value
     // at runtime. The default keeps the old "unconfigured → 503" behaviour
     // instead of failing the deploy.
@@ -93,19 +102,13 @@ export default class Api extends Cloudflare.Worker<Api>()(
 
     // Consumer: the audit pipeline, as an event source. A failing message
     // retries; `maxRetries` then parks it on the dead-letter queue.
-    //
-    // FRICTION: `MessagesProps.deadLetterQueue` is a plain `string`, not an
-    // `Input<string>`, so it cannot take the generated `deadLetter.queueName`
-    // (an `Output<string>`) — the async `Queues.Consumer` accepts it, this does
-    // not. Wiring the DLQ here needs either an upstream `Input<string>` or a
-    // literal queue name (which would cost the per-stage unique name). Left
-    // unwired on this branch rather than silently hardcoding a shared name.
     yield* Cloudflare.Queues.consumeQueueMessages<PhotoEvent>(
       events,
       {
         batchSize: 10,
         maxRetries: 3,
         maxWaitTime: "5 seconds",
+        deadLetterQueue: deadLetterName,
       },
       (stream) =>
         Stream.runForEach(stream, (message) =>
