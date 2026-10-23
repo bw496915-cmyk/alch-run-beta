@@ -1,0 +1,92 @@
+name: deploy
+
+# Prod + PR-preview deploys via the Alchemy root action
+# (`alchemy-run/alchemy@main`): a pull request deploys `staging-<pr>`, the main
+# branch deploys `prod`, and a closed pull request destroys its preview.
+#
+# DISABLED for now — `workflow_dispatch` only. Enabling the real triggers (the
+# block at the bottom) is unsafe until two prerequisites are met:
+#
+#  1. **Remote state.** The action deploys and destroys in DIFFERENT workflow
+#     runs, so a PR-opened deploy and its PR-closed destroy never share a
+#     runner. This stack's store is `Alchemy.localState()`, so the destroy run
+#     would see no state, plan "0 to delete", and leak every resource of the
+#     preview. The stack has to move to `Cloudflare.state()` first, which needs
+#     a one-time `alchemy provider cloudflare bootstrap` (an admin credential,
+#     and it creates a state-store Worker in the account).
+#
+#  2. **`Secrets Store Write`** on the CI token in `stacks/github.ts`.
+#     `Cloudflare.state()` reads its bearer token back through a Secrets Store
+#     binding on every CI run, and *binding* a Secrets Store secret requires
+#     Write — Read only enumerates the store. Today the token has neither.
+#
+# Until then this workflow would fail at the state-store step, so it is not
+# wired to push/PR events. After both prerequisites, add:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#       types: [opened, reopened, synchronize, closed]
+#     workflow_dispatch:
+#
+# `src/Db.ts` / `src/Photos.ts` already treat `staging-*` as ephemeral, so a PR
+# preview destroys cleanly once this is on.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same as the docs' CI guide — never cancel a deploy mid-flight.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy or destroy a stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # Deploying the Stack resolves Config.Redacted("ADMIN_TOKEN").
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11.28.5"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The action shells out to a bare `alchemy`; GitHub only puts
+      # node_modules/.bin on PATH inside `pnpm run`, so add it explicitly (the
+      # README's "install the CLI before this action runs").
+      - name: Put the CLI on PATH
+        run: echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # A `secrets.*` expression cannot appear in `if:` (GitHub rejects it), so
+      # presence is tested in a step — same shape as ci.yml / e2e.yml. A fork
+      # has no secrets, so this skips with a notice rather than failing.
+      - name: Check for credentials
+        id: creds
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN/ADMIN_TOKEN secret; skipping the deploy."
+          fi
+
+      - if: steps.creds.outputs.proceed == 'true'
+        uses: alchemy-run/alchemy@main

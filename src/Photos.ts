@@ -9,13 +9,14 @@ import * as Effect from "effect/Effect";
  *
  * Retention is **conditional** (the documented `retain(<bool>)` form): the
  * object bodies are the user's data, so a real stage keeps the bucket across a
- * rename or `destroy`, while the `test_*` stages the `e2e/` suite uses are torn
- * down — see `Db.ts` and REVIEW §4 #2.
+ * rename or `destroy`, while the ephemeral stages — `test_*` (the `e2e/` suite)
+ * and `staging-<pr>` (the GitHub Action's previews) — are torn down. See `Db.ts`
+ * and REVIEW §4 #2.
  */
 export const Photos = Effect.gen(function* () {
   const { stage } = yield* Alchemy.Stack;
 
   return yield* Cloudflare.R2.Bucket("Photos").pipe(
-    RemovalPolicy.retain(!stage.startsWith("test_")),
+    RemovalPolicy.retain(!(stage.startsWith("test_") || stage.startsWith("staging-"))),
   );
 });

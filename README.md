@@ -217,6 +217,16 @@ any other name would leak a database and a bucket per run. `e2e.yml` pins `test_
 `test_<run_id>` off a PR) and re-runs the destroy in an `always()` step, so a killed test worker
 cannot leak.
 
+`.github/workflows/deploy.yml` is the **prod + PR-preview** path: it drives the Alchemy root action
+(`alchemy-run/alchemy@main`), which deploys `prod` from `main`, deploys `staging-<pr>` for each pull
+request, and destroys that preview when the PR closes. It is **dispatch-only for now**: the action
+deploys and destroys in *different* workflow runs, so it needs a remote state store first —
+`Cloudflare.state()` plus a one-time `alchemy provider cloudflare bootstrap`, and `Secrets Store
+Write` on the CI token (reading the state-store token back requires a Secrets Store *binding*). With
+`localState()` the PR-close destroy would see no state and leak every preview resource. `Db`/`Photos`
+already treat `staging-*` as ephemeral, so the preview tears down cleanly once it is on; the exact
+trigger block to enable is in the workflow header.
+
 ## Credentials
 
 `pnpm dev` and `pnpm test` need none.
