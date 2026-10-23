@@ -44,12 +44,12 @@ without a justified `ALLOWED_DECLARATIONS` entry fails.
 
 ```sh
 ./node_modules/.bin/tsc --noEmit          # types (the repo's `pnpm typecheck` runs the same)
-./node_modules/.bin/vitest run            # 68 tests / 7 suites, offline
+./node_modules/.bin/vitest run            # 74 tests / 8 suites, offline
 actionlint .github/workflows/*.yml        # workflow lint
 pnpm cron-health                          # delivered-vs-configured cron (needs a Cloudflare token)
 ```
 
-`test/manifest.test.ts` holds a **test-count floor** (currently 68) and the exact suite set —
+`test/manifest.test.ts` holds a **test-count floor** (currently 74) and the exact suite set —
 adding tests means raising `MIN_TESTS` in the same diff; removing is the review gate.
 
 ## Credentials
@@ -78,6 +78,6 @@ Bun/Node, not npm (`.github/workflows` use pnpm). Invoke repo binaries as
 
 ## Docs map
 
-`README.md` (routes, live state, commands) · `CONVENTIONS.md` (shape policy) · `REVIEW-2026-10-23.md`
-(shape audit + the ranked missing layers) · `FAILURES.md` (15 rules) · `MIGRATION-beta84.md` /
-`UPGRADE.md` · `CRON-FINDINGS.md`.
+`README.md` (routes, live state, commands) · `CONVENTIONS.md` (shape policy) · `AUDIT-2026-10-23.md`
+(ground truth + attribution) · `REVIEW-2026-10-23.md` (shape audit, incidents, 15 rules) ·
+`MIGRATION-beta84.md` / `UPGRADE.md` · `CRON-FINDINGS.md`.

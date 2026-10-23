@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
  * *source*; nothing enforced that they themselves exist and still contain their
  * tests. Deleting either file, or deleting its `it(...)` blocks, left
  * `pnpm test` green with fewer assertions — the same silent failure read as
- * success that `FAILURES.md` rule 14 describes, in the gate itself. So the
+ * success that `REVIEW-2026-10-23.md` rule 14 describes, in the gate itself. So the
  * allow-list can only be emptied by a diff that also deletes a named, tested
  * file, and a suite cannot shrink without a visible edit here.
  *
@@ -52,8 +52,9 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
  * The floor, not the current count: 54 when this file landed (41 + preflight's
  * 5 + the five envelope cases + these three), raised to 55 with the
  * pin/workaround guard in `docs.test.ts`, to 63 with `flags.test.ts` (7) and the
- * queue-redelivery case. Raise it deliberately when adding tests; lowering it is
- * the review gate.
+ * queue-redelivery case, and to 74 as the queue-health, cron-health and docs
+ * suites grew. Raise it deliberately when adding tests; lowering it is the
+ * review gate.
  */
 const MIN_TESTS = 74;
 

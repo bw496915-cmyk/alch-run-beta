@@ -16,15 +16,17 @@ migrations/               0001_init.sql (photos), 0002_audit.sql (audit_events)
 src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Counter DO class
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
-test/                     seven suites: api, cron-health, docs, flags, manifest, policy, preflight
+test/                     eight suites: api, cron-health, docs, flags, manifest, policy, preflight, queue-health
 scripts/preflight.ts      session preflight: probes scratch space, reports degraded
 stacks/github.ts          CI credentials as code: mints a scoped token, writes repo secrets
 vitest.config.ts          pins the suite to test/**/*.test.ts
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
 CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gates
 MIGRATION-beta84.md       the diff this tree needs when beta.84 publishes
-REVIEW-2026-10-23.md      shape audit, corrections, defects fixed, missing layers
-FAILURES.md               what broke, why, and the rules this project now follows
+UPGRADE.md                what to do when beta.84 publishes
+AUDIT-2026-10-23.md       ground truth + attribution: claim→artifact→verdict, owners
+REVIEW-2026-10-23.md      shape audit, ranked layers, incidents, and the 15 rules
+CRON-FINDINGS.md          the cron measurement-window finding
 .alchemy/                 local state + dev logs (gitignored)
 ```
 
@@ -93,7 +95,7 @@ Two live caveats, neither green yet:
   removed the probe trigger, so the committed schedule is now the only one attached;
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
-  [FAILURES.md](./FAILURES.md) #7.
+  [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §9 #7.
 
 The live bundle now matches `src/` (redeployed 2026-10-23): the four bug fixes, the
 `AuditDeadLetter` queue, the admin gate on `/stats` + `/audit`, and the degrade-to-503 path.
@@ -117,12 +119,13 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 68 offline tests in seven suites, no account, no network |
+| `pnpm test` | `vitest run` — 74 offline tests in eight suites, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
 | `pnpm cron-health` | Asserts the cron expression Cloudflare **delivers** matches the one configured — the one external mechanism no other check can see ([§8](./REVIEW-2026-10-23.md)) |
-| `pnpm preflight` | Probes scratch space at session start: writes a nonce, reads it back, removes it, and reports `scratch: ok | READ-ONLY`. A read-only `/tmp` is an environment failure, not a network error ([FAILURES.md](./FAILURES.md) rule 11) |
+| `pnpm queue-health` | Asserts the dead-letter queue is empty — the silent-sink invariant ([AUDIT-2026-10-23.md](./AUDIT-2026-10-23.md) §5) |
+| `pnpm preflight` | Probes scratch space at session start: writes a nonce, reads it back, removes it, and reports `scratch: ok | READ-ONLY`. A read-only `/tmp` is an environment failure, not a network error ([REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) rule 11) |
 
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for
 the subcommand in hand. `$ALCHEMY_STAGE` selects the stage; `dev` defaults to `dev_${USER}`.
@@ -231,16 +234,14 @@ not a quiet pass.
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
-| `pnpm test` | 68/68 in seven suites, offline | — |
+| `pnpm test` | 74/74 in eight suites, offline | — |
 
 Two runtime behaviours worth knowing:
 
 - the local queue consumer drains on its own pull loop — an event reached `audit_events` about
   15s after the `PUT`. An empty `/audit` is not a broken consumer.
-- a **newly attached** cron trigger does not fire on the next minute: measured first-fire
-  latency was 6m42s, 6m46s and 11m11s across three scripts. Checking inside the first ~5
-  minutes reads as "never fires" and is wrong — allow ~15 minutes before concluding anything
-  ([CRON-FINDINGS.md](./CRON-FINDINGS.md)).
+- a **newly attached** cron trigger does not fire on the next minute — allow ~15 minutes before
+  concluding "never fires" ([CRON-FINDINGS.md](./CRON-FINDINGS.md)).
 
 The green typecheck covers this repo's code, not every corner of Alchemy's own types: beta.84
 ships #2413 because `alchemy/State` did not type-check under `exactOptionalPropertyTypes`, and
@@ -272,23 +273,12 @@ so that breaking change costs nothing here.
 
 ## Why beta.83, not beta.84
 
-The beta.84 post is served only from `main.alchemy.run` — the production URL 404s and the
-production blog index stops at beta.83 (the production RSS feed already lists beta.84, but
-links it to that 404). And nothing installable exists:
+beta.84 is announced but **not installable**: `alchemy@latest` is still `2.0.0-beta.83`, and every
+`@alchemy.run/*` package is only `0.0.0` — a stale Effect-v3 prototype squatting the names. The
+release post is served only from the preview host `main.alchemy.run`; the production URL 404s. Full
+signal table and the package-split diff: [MIGRATION-beta84.md](./MIGRATION-beta84.md).
 
-| Signal | Result |
-| --- | --- |
-| `alchemy` on npm | `latest` = `2.0.0-beta.83` (2026-10-12); no beta.84 |
-| Split provider packages | only `0.0.0` for `@alchemy.run/{aws,cloudflare,domain,gcp,core}` |
-| `@alchemy.run/{aws,cloudflare,core}@0.0.0` | a stale 2025-11-03 prototype on **Effect v3** — an abandoned prototype squatting the name |
-| `@alchemy.run/{domain,gcp}@0.0.0` | 2026-10-21 publish stubs: 2 files, no code |
-| The post's install route | `pkg.alchemy.run/…/2e7fdc5` 404s, as do `latest` and `2.0.0-beta.84` |
-
-Versioning is settled though: alchemy's scoped helpers (`cloudflare-runtime`, `floci`,
-`node-utils`, `frontend-frameworks`) all sit at exactly `2.0.0-beta.83`, lockstep with core, so
-`@alchemy.run/cloudflare@2.0.0-beta.84` is the expected pin.
-
-> **Trap:** never `pnpm add @alchemy.run/cloudflare` unpinned — it resolves to `0.0.0`, the
+> **Trap:** never `pnpm add @alchemy.run/cloudflare` unpinned — `latest` resolves to `0.0.0`, the
 > Effect-v3 prototype, and pulls a second Effect into the tree.
 
 ```bash

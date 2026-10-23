@@ -100,7 +100,7 @@ export type EnvelopeRead<T> =
  * The script's exit codes are part of its contract: **1** means "the assertion
  * failed", **2** means "cannot observe". A proxy's HTML 502 page used to throw
  * out of `response.json()` and exit 1 — an environment failure reported as "the
- * cron is wrong". `FAILURES.md` rule 4: verify the effect (the body was the
+ * cron is wrong". `REVIEW-2026-10-23.md` rule 4: verify the effect (the body was the
  * API's), not the return code.
  */
 export const readEnvelope = <T>(status: number, body: string): EnvelopeRead<T> => {

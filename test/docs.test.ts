@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Enforces the documentation rules that were previously prose only — chiefly
- * `FAILURES.md` rule 12: *never cite an issue as "closed" without its
+ * `REVIEW-2026-10-23.md` rule 12: *never cite an issue as "closed" without its
  * `state_reason` and the PR or commit that closed it.*
  *
  * The rule exists because `state: closed` renders identically for fixed,
@@ -97,7 +97,7 @@ describe("documentation rules", () => {
         });
     }
 
-    expect(offences, "FAILURES.md rule 12: state_reason + closing PR/commit required").toEqual([]);
+    expect(offences, "REVIEW-2026-10-23.md rule 12: state_reason + closing PR/commit required").toEqual([]);
   });
 
   it("gives every workaround a verified closure and a concrete expiry trigger", () => {
@@ -141,7 +141,7 @@ describe("documentation rules", () => {
   });
 
   it("keeps the docs it enforces present", () => {
-    for (const required of ["CONVENTIONS.md", "FAILURES.md", "REVIEW-2026-10-23.md", "UPGRADE.md"]) {
+    for (const required of ["AUDIT-2026-10-23.md", "CONVENTIONS.md", "REVIEW-2026-10-23.md", "UPGRADE.md"]) {
       expect(DOCS, `${required} is missing`).toContain(required);
     }
   });

@@ -16,6 +16,7 @@
     "check-env": "alchemy provider check-env",
     "state": "alchemy state list",
     "cron-health": "node scripts/cron-health.ts",
+    "queue-health": "node scripts/queue-health.ts",
     "preflight": "node scripts/preflight.ts"
   },
   "dependencies": {

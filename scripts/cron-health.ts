@@ -170,4 +170,4 @@ if (!verdict.ok) {
   process.exit(1);
 }
 
-console.log("\nOK — the newest delivery matches a configured expression");
+console.log("\nOK — newest delivery is configured");

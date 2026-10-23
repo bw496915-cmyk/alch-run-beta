@@ -2,7 +2,7 @@
 /**
  * Session preflight: is this environment usable, and is it degraded?
  *
- * `FAILURES.md` rule 11 (this script is its enforcer): a scratch directory that
+ * `REVIEW-2026-10-23.md` rule 11 (this script is its enforcer): a scratch directory that
  * cannot be written fails at the WRITE, and that failure looks like an empty
  * network response — a report can then read complete while missing whatever
  * could not be staged. Probe at session start, not after the first write fails.
@@ -38,7 +38,7 @@ if (argv.includes("--help") || argv.includes("-h")) {
     [
       "usage: node scripts/preflight.ts [--dir <path>] [--allow-read-only]",
       "",
-      "Probes scratch space at session start (FAILURES.md rule 11) and classifies",
+      "Probes scratch space at session start (REVIEW-2026-10-23.md rule 11) and classifies",
       "a failure as an environment failure rather than a network error or a bad",
       "command. Exits 1 when scratch is unusable, unless --allow-read-only is given.",
     ].join("\n"),
@@ -116,10 +116,10 @@ const verdict: Verdict = classifyProbe(probeScratch(SCRATCH_DIR));
 const label = (name: string): string => name.padEnd(9);
 
 const DEGRADED_HINT =
-  "degraded: staging to /tmp, tracked-file backups and `curl -o` will fail silently — " +
-  "report degraded, do not retry as a network error or a bad command";
+  "scratch is unusable: staging, /tmp backups and `curl -o` fail silently — report degraded, " +
+  "do not retry as a network error";
 
-console.log(`${label("scratch")} ${SCRATCH_DIR}  ${verdict.status === "ok" ? "ok (written, read back, removed)" : `${verdict.status.toUpperCase()} — ${verdict.detail}`}`);
+console.log(`${label("scratch")} ${SCRATCH_DIR}  ${verdict.status === "ok" ? "ok" : `${verdict.status.toUpperCase()} — ${verdict.detail}`}`);
 console.log(`${label("repo")} ${gitStatus()}`);
 console.log(`${label("node")} ${process.version}   pnpm ${pnpmVersion()}`);
 console.log(`${label("pin")} alchemy ${pin()}  (floor and #2235 expiry: test/docs.test.ts)`);
@@ -127,7 +127,7 @@ console.log(`${label("pin")} alchemy ${pin()}  (floor and #2235 expiry: test/doc
 if (verdict.status !== "ok") {
   console.error(`\nPREFLIGHT DEGRADED — ${DEGRADED_HINT}`);
   if (!ALLOW_READ_ONLY) {
-    console.error("pass --allow-read-only to proceed deliberately without scratch space");
+    console.error("--allow-read-only to proceed without scratch");
     process.exit(1);
   }
   console.log("PREFLIGHT DEGRADED (allowed)");

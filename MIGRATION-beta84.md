@@ -6,7 +6,7 @@
 > this file's name — and the **package split**, which is beta.84. The pre-correction version of
 > this file attributed the door to beta.84, which is exactly the provenance drift that produced
 > the wrong pin floor. Read §"One-way door" for the corrected version; the filename is kept so
-> existing references (README, REVIEW, FAILURES) still resolve.
+> existing references (README, REVIEW) still resolve.
 
 **Status: not runnable yet.** Checked 2026-10-23, five independent signals:
 
@@ -181,7 +181,7 @@ Two operational rules that come with it, the second of which the beta.84 notes d
   remove `version.traffic` for that one deploy; otherwise it fails with
   `WorkerVersionConfigError`. Previews still use `migrations`, so a preview Worker is not a
   probe for this behaviour. This is a property of the export-era deploy flow, not of one
-  release: `FAILURES.md` rule 15 makes it a standing rule for every future pin bump.
+  release: `REVIEW-2026-10-23.md` rule 15 makes it a standing rule for every future pin bump.
 
 ### Also available on beta.83 and currently unused
 

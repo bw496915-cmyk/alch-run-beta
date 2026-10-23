@@ -101,10 +101,8 @@ the `0 3 * * *` fire on 2026-10-24.
   → `{"cron":"0 3 * * *"}`, `/health` 200, `/stats` serves the DO, `/audit` serves D1.
 - All probe scripts, KV namespaces and stages (`cron-probe`) destroyed.
 
-## Stale claims to correct
+## Stale claims corrected
 
-`README.md` (cron trigger row "attached, never fired"; "the cron has never
-fired"; Verified row "Cron fires … ✖ never observed"), `REVIEW-2026-10-23.md`
-(track A "open"; "handler/trigger path still unexplained") and `FAILURES.md` #8
-are all falsified by the evidence above. Not edited here to avoid clobbering
-concurrent documentation work.
+The "cron has never fired" claims (README trigger row and Verified row, REVIEW track A
+"open", and the incident record) are falsified by the evidence above and have all been
+corrected in place.

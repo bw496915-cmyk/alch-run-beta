@@ -1,11 +1,9 @@
 name: cron health
 
-# The scheduler is the one mechanism here that is external and invisible from
-
-# inside the Worker: on 2026-10-23 the live script kept delivering a RETIRED
-# `* * * * *` expression for ~16 minutes after the schedule changed, across a
-# redeploy. Nothing in the repo could see it. This job asks the platform what it
-# actually delivered and compares it with what we configured.
+# The scheduler is external and invisible from inside the Worker: on 2026-10-23
+# the live script kept delivering a RETIRED `* * * * *` after the schedule had
+# changed. Nothing in the repo could see it. This job asks the platform what it
+# actually delivered and compares it with what we configured (CRON-FINDINGS.md).
 #
 # Every 6 hours rather than daily: the assertion gates on the NEWEST delivery, so
 # a more frequent run narrows the window in which a one-off replay could hide.
@@ -60,7 +58,7 @@ jobs:
 
       # The audit found the dead-letter queue is a silent sink: a poison message is
       # parked after maxRetries with nothing draining or alerting it. This is the
-      # invariant that fails loudly — see AUDIT-2026-10-23-ground-truth.md.
+      # invariant that fails loudly — see AUDIT-2026-10-23.md.
       - name: Assert the dead-letter queue is empty
         if: steps.creds.outputs.proceed == 'true'
         # The account id and token come from the job-level env.

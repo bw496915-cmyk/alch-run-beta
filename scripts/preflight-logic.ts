@@ -6,7 +6,7 @@
  * The classification exists because a scratch directory that cannot be written
  * fails at the WRITE, not at the read. A later step that meant to stage a file
  * then reads as an empty network response or a flaky command, and the report
- * looks complete while missing whatever could not be staged. `FAILURES.md`
+ * looks complete while missing whatever could not be staged. `REVIEW-2026-10-23.md`
  * rule 11 states the rule; `pnpm preflight` is its enforcer.
  */
 
@@ -42,7 +42,7 @@ const READ_ONLY_CODES: ReadonlyArray<string> = ["EPERM", "EACCES", "EROFS"];
  *   unusable    the write failed for another reason (ENOSPC, ENOTDIR, …), so the
  *               scratch space is broken rather than forbidden.
  *   silent-write the write reported success and did not take effect — the exact
- *               failure `FAILURES.md` rule 14 describes, caught in the one place
+ *               failure `REVIEW-2026-10-23.md` rule 14 describes, caught in the one place
  *               it is cheap to catch.
  *   leaked      the probe file could not be confirmed gone, so a later run may
  *               read scratch that predates it.

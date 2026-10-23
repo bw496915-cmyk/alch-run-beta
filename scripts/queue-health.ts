@@ -82,7 +82,7 @@ for (const queue of matched) {
 for (const verdict of verdicts) console.log(`${verdict.ok ? "ok  " : "FAIL"} ${verdict.detail}`);
 
 if (verdicts.some((v) => !v.ok)) {
-  console.error("\nFAIL — a dead-letter queue has parked messages and nothing drains or alerts it");
+  console.error("\nFAIL — a dead-letter queue has parked messages");
   process.exit(1);
 }
-console.log("\nOK — every matched dead-letter queue is empty");
+console.log("\nOK — dead-letter queues empty");
