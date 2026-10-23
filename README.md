@@ -250,8 +250,9 @@ so that breaking change costs nothing here.
 
 ## Why beta.83, not beta.84
 
-The beta.84 post is served only from `main.alchemy.run` — the production URL 404s and the blog
-index/RSS stop at beta.83. And nothing installable exists:
+The beta.84 post is served only from `main.alchemy.run` — the production URL 404s and the
+production blog index stops at beta.83 (the production RSS feed already lists beta.84, but
+links it to that 404). And nothing installable exists:
 
 | Signal | Result |
 | --- | --- |

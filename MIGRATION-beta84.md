@@ -11,10 +11,12 @@
 **Status: not runnable yet.** Checked 2026-10-23, five independent signals:
 
 > The release post is served from the **preview host** `main.alchemy.run`, not the production
-> domain: `https://alchemy.run/blog/2026-10-22-beta-84/` returns **404**, the blog index and
-> RSS feed stop at beta.83, and `https://main.alchemy.run/blog/2026-10-22-beta-84/` returns
-> **200**. Any citation of this release should link the `main.` URL or readers will land on a
-> 404.
+> domain: `https://alchemy.run/blog/2026-10-22-beta-84/` returns **404**, the production blog
+> index stops at beta.83, and `https://main.alchemy.run/blog/2026-10-22-beta-84/` returns
+> **200**. The production **RSS feed disagrees**: `alchemy.run/blog/rss.xml` already lists the
+> beta.84 item, carries the full post, and links it to that 404 URL — so the release is
+> discoverable through the feed before its page exists. Any citation of this release should
+> link the `main.` URL or readers will land on a 404.
 
 | Signal | Finding |
 | --- | --- |
@@ -26,8 +28,9 @@
 
 `@alchemy.run/domain` and `@alchemy.run/gcp` were reserved on 2026-10-21 — the day before
 the post — one of them described as a "Temporary package placeholder for staged
-publishing". The release was staged; the artifacts did not land. The RSS feed still ends
-at beta.83 as well.
+publishing". The release was staged; the artifacts did not land. The production blog index
+still ends at beta.83, but the production RSS feed already carries the beta.84 item (see the
+note above) — so "not published" is true of npm and of the page, not of the feed.
 
 > **Do not `pnpm add @alchemy.run/cloudflare` without an exact version.** `latest` is
 > `0.0.0`, a year-old Effect-v3 prototype; installing it would pull a second, incompatible
@@ -208,7 +211,9 @@ they are listed so the next reader does not have to re-derive them:
 state stores (`Cloudflare.state()`, `AWS.state()`, the new `GCP.state()`) move into their
 provider packages — and beta.84 grows a named-store option. On beta.83 `Cloudflare.state()`
 takes **no arguments**; the named form is beta.84-era, and the live docs name the field
-`workerName`, not `name`:
+`workerName`, not `name` (the post itself writes `Cloudflare.state({ name: "team-a" })` and
+`AWS.state({ name })`, so post and docs disagree — confirm against the shipped `.d.ts` at
+migration time):
 
 ```ts
 state: Cloudflare.state({ workerName: "alchemy-state-store-team-a" }),
@@ -261,10 +266,12 @@ pnpm plan               # expect "Plan: 0 to create" against an existing stage,
 - No rollback complexity: `git checkout -- . && pnpm install` returns to beta.83,
   because nothing in this repo depends on beta.84-only features.
 
-## About the post's `pkg.alchemy.run` install command
+## About the post's install command
 
-The release post installs prerelease builds by URL rather than by version
-(`bun add https://pkg.alchemy.run/alchemy/2e7fdc5 …`). Today that route is not a way
+The post exists in **two copies that disagree**, and neither installs beta.84 today.
+
+The copy in the production RSS feed installs prerelease builds by URL rather than by
+version (`bun add https://pkg.alchemy.run/alchemy/2e7fdc5 …`). That route is not a way
 around the missing npm publish either — every path tried 404s:
 
 ```bash
@@ -272,6 +279,26 @@ curl -s https://pkg.alchemy.run/alchemy/2e7fdc5          # {"error":"alchemy@2e7
 curl -s -o /dev/null -w '%{http_code}\n' https://pkg.alchemy.run/alchemy/latest   # 404
 ```
 
+The copy served from `main.alchemy.run` instead says
+`bun add alchemy@latest @alchemy.run/cloudflare@latest @alchemy.run/aws@latest`. That is
+worse than the URL form: `latest` is `2.0.0-beta.83` for `alchemy` and `0.0.0` for
+`@alchemy.run/cloudflare`, so it installs the beta.83 core beside the Effect-v3 prototype —
+exactly the mixed tree the trap above warns about. Pin `2.0.0-beta.84` explicitly on both,
+or use the URL form once the proxy serves it.
+
 If you find the proxy serving a commit sha later but npm still lags, that URL form is the
 sanctioned install path — swap it into `package.json` as an exact URL dependency, then
 re-run `pnpm typecheck` before trusting it.
+
+## Post errata (the post's own inconsistencies)
+
+Recorded so our citations do not propagate them. Both are upstream — not ours to fix here.
+
+- **Service counts disagree.** The binding-coverage paragraphs say "~2,850 AWS bindings
+  across **205 services**" and "192 GCP bindings across **57 services**"; the distilled
+  import table says AWS has **438 services** and GCP **318**. If the two sets measure
+  different things (SDK services vs. services with bindings), the post should say so — as
+  written the same word carries two values.
+- **The perf ranges are rounded past their own data.** "5–100× less overhead per call"
+  against GCP `storage.getBuckets` 674 → 6.2 µs (~109×); "3–22× less memory" against
+  Cloudflare 76 MB → 3.2 MB (~24×). Widen the range or drop the caps.
