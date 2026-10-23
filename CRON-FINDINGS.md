@@ -64,12 +64,14 @@ trigger-time:
 2. **Alchemy async probe** (own stage `cron-probe`, `crons` prop + plain
    `scheduled`) — fired; `{"runtime":"alchemy","fires":"7","…"source":"scheduled"…}`,
    `fires` reached 10.
-3. **Effect-native probe** (`Cloudflare.Workers.cron(...)` +
-   `CronEventSourceLive`, `main: import.meta.url` inside a `Stack`): **did not
-   deploy.** `ScriptStartupError: Uncaught TypeError: e.resolve is not a function
-   at generateBinPath / init_workerd` — the worker bundle pulls Alchemy's
-   Node-side runtime services into workerd. So the Effect-native route is not a
-   drop-in replacement here, and is unnecessary: the async prop already works.
+3. **Effect-native probe** (`Cloudflare.Workers.cron(...)` + `CronEventSourceLive`,
+   `main: import.meta.url` inside a `Stack`): **re-verified 2026-10-23 — it deploys.** An earlier
+   pass recorded `ScriptStartupError: Uncaught TypeError: e.resolve is not a function at
+   generateBinPath / init_workerd` ("the bundle pulls Alchemy's Node-side runtime services into
+   workerd"). A scratch stack (`spike/` — since deleted) planned, deployed (`Done: 1 succeeded`,
+   `Reconciling Cron Triggers (1)`, `[CronSpike/Cron(* * * * *)]`) and destroyed clean, so that
+   record was stale and the Effect-native route **is** available here. Note it registers the
+   schedule as its own `Cron(...)` resource, not via the `crons` prop.
 4. **Second deploy after a cron change** (async probe, `* * * * *` → `*/2 * * * *`,
    stage `cron-probe`): `[Probe] updated — Reconciling Cron Triggers (1)`, the
    schedules API showed the new expression, and the handler kept firing

@@ -32,14 +32,19 @@ its first redeploy (`MIGRATION-beta84.md` §"One-way door"; asserted by `test/do
 | `export class Counter extends DurableObject` (from `cloudflare:workers`) exported by the entry module | `DurableObject.d.ts:870-897` |
 | `env: { COUNTER: Cloudflare.DurableObject("Counter", { className: "Counter" }) }` | `DurableObject.d.ts:176-206` |
 | plain `async queue(batch, env)` with per-message `ack()` / `retry()` | queues page, §"What's the difference vs. a native `queue()` handler?" |
-| `crons: ["0 3 * * *"]` + plain `async scheduled(controller, env, ctx)` | cron page note; `Worker.d.ts:704-716`; **proven to fire** on this account ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) — and the Effect-native `Workers.cron` alternative failed to deploy here, so this is not a "modernise it later" candidate |
+| `crons: ["0 3 * * *"]` + plain `async scheduled(controller, env, ctx)` | cron page note; `Worker.d.ts:704-716`; **proven to fire** on this account ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) — and the Effect-native `Workers.cron` + `CronEventSourceLive` route also deploys here (re-verified 2026-10-23; the earlier "failed to deploy" was a stale record), so this row is a **style choice, not a forced one** |
 | `Queues.Consumer("Id", { queueId, scriptName: worker.workerName })` | `Queues/Consumer.d.ts:76-114` |
 | raw `env.DB.prepare(…)` on a typed `D1Database` | it *is* the D1 API; no wrapper wanted |
 
 Effect-native equivalents (`Workers.cron` + `CronEventSourceLive`, `consumeQueueMessages` +
 `EventSourceLive`, `DurableObject<Self>()(…)`, `R2.ReadWriteBucket`, `D1.QueryDatabase`,
 `KV.ReadWriteNamespace`, `Queues.WriteQueue`, `HttpServerResponse`) are equally canonical
-**when the Worker is Effect-native**. Choosing them is a style decision, not a compliance one.
+**when the Worker is Effect-native**, and now that `Workers.cron` deploys there both styles are
+genuinely open. One consequence to weigh before choosing: the pin's `Platform.Main` is
+**`{ fetch? }` only** — no `queue`, no `scheduled`. So an Effect-native Worker carries the queue
+consumer and the cron as *event sources* (`consumeQueueMessages` + `EventSourceLive`; `cron` +
+`CronEventSourceLive`), never as handlers on a default export. Choosing them is a style decision,
+not a compliance one.
 
 ### Provenance and scope of this policy
 
