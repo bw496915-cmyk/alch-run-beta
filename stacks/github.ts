@@ -63,6 +63,8 @@ export default Alchemy.Stack(
             "Queues Write",
             "Account Settings Write",
             "Workers Tail Read",
+            // cron-health queries Workers Observability telemetry.
+            "Workers Observability Write",
           ],
           resources: { [`com.cloudflare.api.account.${accountId}`]: "*" },
         },
