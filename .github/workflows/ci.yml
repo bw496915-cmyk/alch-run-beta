@@ -1,0 +1,118 @@
+name: CI
+
+# `verify` runs on every push and every pull request and needs no credentials.
+# `plan` runs only on main, only after verify, and only ever *plans* — applying a
+# stage stays a human decision, so nothing in this workflow calls `deploy`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to match packageManager in package.json (pnpm 11.28.5).
+  PNPM_VERSION: "11.28.5"
+  NODE_VERSION: "24"
+  # Account the `deep-pass` stage lives on. A repo (or org) variable
+  # CLOUDFLARE_ACCOUNT_ID overrides it; the fallback keeps a fork working without
+  # any configuration. Exposing the account id is not a secret.
+  CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}
+  # Stage passed to scripts/alch.sh. Override with the repo variable
+  # CLOUDFLARE_STAGE; defaults to the stage README documents.
+  STAGE: ${{ vars.CLOUDFLARE_STAGE || 'deep-pass' }}
+
+jobs:
+  verify:
+    name: typecheck + unit tests (offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit, strict)
+        run: pnpm typecheck
+
+      # No network, no Cloudflare account: the suite fakes every binding in memory.
+      - name: Unit tests (vitest)
+        run: pnpm test
+
+  plan:
+    name: alchemy plan on main (apply stays manual)
+    needs: verify
+    # Main only. Pull-request events have a refs/pull/... ref, so they are skipped.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Empty when the repo has no such secret — which is how the gate below
+      # detects "no credentials" without touching the value.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The deploy gate. A `secrets.*` expression cannot be used directly in an
+      # `if:` (GitHub rejects it), so presence is tested here, in a step, from an
+      # env var, and exported as an output the plan step gates on:
+      #   - a manual workflow_dispatch always proceeds (and fails loudly if the
+      #     token is missing), so a human can trigger a plan deliberately;
+      #   - a push to main proceeds only when CLOUDFLARE_API_TOKEN exists,
+      #     otherwise the step skips with a notice instead of failing the run.
+      - name: Check for CLOUDFLARE_API_TOKEN
+        id: creds
+        shell: bash
+        env:
+          HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_TOKEN}" = "true" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "CLOUDFLARE_API_TOKEN is present — planning stage '${STAGE}'."
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::workflow_dispatch requested a plan without CLOUDFLARE_API_TOKEN; scripts/alch.sh will exit 1."
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN secret; skipping the plan. Push-triggered plans need the secret set."
+          fi
+
+      # Plan only. `deploy` is deliberately absent from this workflow so an apply
+      # is always a reviewed, human-run command (see README, "Testing" / "Live
+      # deployment").
+      - name: Plan the stage (no apply)
+        if: steps.creds.outputs.proceed == 'true'
+        run: ./scripts/alch.sh plan

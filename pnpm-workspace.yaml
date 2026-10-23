@@ -1,6 +1,11 @@
 minimumReleaseAgeExclude:
   - '@effect/platform-node@4.0.6'
   - effect@4.0.6
-onlyBuiltDependencies:
-  - workerd
+# pnpm 11 removed `onlyBuiltDependencies` in favour of this map (boolean per
+# package). The old key is silently ignored by pnpm 11, which then fails a fresh
+# `pnpm install` with ERR_PNPM_IGNORED_BUILDS because `strictDepBuilds` defaults
+# to true — that is why workerd needs an explicit `true` here for local
+# emulation (and for the CI `pnpm install --frozen-lockfile` gate) to work.
+allowBuilds:
+  workerd: true
 verifyDepsBeforeRun: false

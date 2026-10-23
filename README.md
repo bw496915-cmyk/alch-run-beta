@@ -22,7 +22,10 @@ different products.
 │   ├── Db.ts                 # D1 database + migrations
 │   ├── Cache.ts              # KV namespace
 │   └── QueueEvents.ts        # Queue + its Consumer
-├── tsconfig.json             # strict, no-emit typecheck
+├── test/
+│   └── api.test.ts           # offline Vitest suite: in-memory fakes for every binding
+├── .github/workflows/ci.yml  # verify (typecheck + tests) + a gated, plan-only job
+├── tsconfig.json             # strict, no-emit typecheck (covers src/ and test/)
 ├── scripts/
 │   └── alch.sh               # plan / deploy / destroy a stage without remembering flags
 ├── MIGRATION-beta84.md       # the exact diff this tree needs when beta.84 ships
@@ -124,7 +127,9 @@ recreate resources that already exist.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `migrations/` |
+| `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
+| `pnpm test` | `vitest run` — the offline unit suite (no account, no network) |
+| `pnpm test:watch` | `vitest` in watch mode while editing `src/Api.ts` |
 | `pnpm dev` | Local loop on workerd (D1 + KV + R2 emulated), HMR at <http://localhost:1337> |
 | `pnpm plan` | Diff against the current stage, apply nothing |
 | `pnpm deploy` | Plan → confirm → apply |
@@ -135,6 +140,74 @@ Flags worth knowing: `--stage <name>`, `--profile <name>`, `--dry-run`, `--yes`,
 `--no-input`. Stages default to `live_${USER}` for `plan`/`deploy` and `dev_${USER}` for
 `dev`. Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read
 `--help` for the subcommand in hand rather than assuming this list travels.
+
+## Testing
+
+The suite is **offline by construction**: `Env` is a set of hand-written structural
+interfaces, so every binding is faked in memory — no Cloudflare account, no workerd, no
+network.
+
+```bash
+pnpm install --frozen-lockfile   # from a fresh clone; installs vitest
+pnpm typecheck                   # tsc --noEmit, strict, over src/ and test/
+pnpm test                        # vitest run — the whole suite in ~0.2s
+pnpm test:watch                  # same suite, watch mode
+```
+
+`test/api.test.ts` replaces each binding with a fake:
+
+| Binding | Fake | Fidelity it keeps |
+| --- | --- | --- |
+| `PHOTOS` | `Map` of key → body | `size` is the UTF-8 byte length, as R2 reports it; `httpMetadata.contentType` round-trips |
+| `DB` | switches on the handful of SQL statements `src/Api.ts` issues | unknown SQL throws, so a new query in the Worker cannot pass silently; errors throw out of `run()` |
+| `CACHE` | `Map` | `expirationTtl` is recorded (asserted to be 60) but never expires |
+| `EVENTS` | array | `send` captures raw bodies so the queue event is inspectable |
+| `COUNTER` | namespace stub | `idFromName`/`get` return a stub whose `fetch` delegates to a real `new Counter(state, env)`, so the Durable Object's own code runs against fake storage instead of being mocked |
+
+Covered: `/health`, `/stats`, `/audit`; the `GET /photos` cache-miss → refill → hit pair
+(`x-cache` and `source` on both legs, and that a hit never reaches D1); `PUT` writing R2,
+D1, the KV bust and the Queue; `GET`/`DELETE /photos/<key>` including 404; the missing-key
+rejection; unknown paths; `queue()` acking, retrying, and draining a batch after a failure;
+`scheduled()` bumping the DO counter and recording `cron.fire`; and `Counter` continuing
+from DO storage across instances rather than module state.
+
+The tests live in the same `tsconfig.json` `include` as `src/`, so `pnpm typecheck` also
+type-checks them under `strict` + `exactOptionalPropertyTypes` +
+`noUncheckedIndexedAccess`. No `test/tsconfig.json` exists and no compiler option was
+relaxed for them, which is why a type error in a test fails the gate too. `vitest.config.ts`
+pins the suite to `test/**/*.test.ts`, so scratch directories at the repo root (`.alchemy/`,
+`.home/`, `probe/`, the pnpm store) can never contribute a test.
+
+Two defects the fakes pin down (asserted at current behaviour, **not** fixed here — they
+belong to `src/Api.ts`):
+
+- `PUT /photos` with no key returns **404**, not 400: the guard tests
+  `request.method === "POST"` while its own message names `PUT /photos/<key>`.
+- `PUT` records `body.length` (UTF-16 code units) as `bytes`, but R2 stores UTF-8 bytes, so
+  the D1 row and the queue event disagree with the object for any non-ASCII body.
+
+### CI
+
+`.github/workflows/ci.yml` has two jobs:
+
+| Job | When | What |
+| --- | --- | --- |
+| `verify` | every push and every PR | `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test` — no secrets, no account |
+| `plan` | `main` only, after `verify` | `./scripts/alch.sh plan` — never `deploy`, so applying stays a human decision |
+
+Both are reproducible locally:
+
+```bash
+pnpm install --frozen-lockfile && pnpm typecheck && pnpm test   # = verify
+./scripts/alch.sh plan                                          # = plan (needs CLOUDFLARE_API_TOKEN)
+```
+
+The `plan` job runs when a human dispatches the workflow, or when the repo holds a
+`CLOUDFLARE_API_TOKEN` secret; GitHub rejects `secrets.*` inside an `if:`, so the presence
+check happens in a step and gates the plan step (a push to `main` without the secret skips
+with a notice instead of failing). `CLOUDFLARE_ACCOUNT_ID` comes from the repo variable of
+the same name and defaults to `7a470541a704caaf91e71efccc78fd36`; `CLOUDFLARE_STAGE`
+defaults to `deep-pass`. Applying is still a human running `./scripts/alch.sh deploy`.
 
 ## Credentials
 
@@ -181,7 +254,8 @@ exercised over HTTP against that URL or recorded in
 | D1 migrations applied (`photos`, `photos_created_at`, `audit_events`, `__alchemy_migrations`) | ✅ | ✅ | rev 2 added `audit_events`; the consumer writes to it |
 | **Cron fires** → `scheduled()` bumps DO `cronFires`, writes a `cron.fire` row | **not testable in seconds** | **✖ never observed** | the trigger is attached and the handler still never ran — [FAILURES.md](./FAILURES.md) #8, open |
 | `alchemy plan` after deploy → every resource `noop` | — | **unknown** | ✅ after revision 1 only; not re-checked after revision 2 |
-| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — | last recorded run 2026-10-22; docs changes do not touch it |
+| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — | covers `src/` **and** `test/` |
+| `pnpm test` (offline suite) | 26/26 pass, no account or network | — | the behaviours above are asserted here, so a regression fails locally and in CI |
 
 **Still unproven on the live stage**, stated plainly so nobody inherits a false green:
 
@@ -212,10 +286,17 @@ Alchemy's own types. beta.84 ships #2413 precisely to make `alchemy/State` type-
 | `@effect/platform-node` | `4.0.6` |
 | `typescript` | `5.9.3` |
 | `@types/node` | `24.19.2` |
+| `vitest` | `5.0.5` (dev) |
 | `workerd` (transitive) | `1.20261002.1` |
 
-`pnpm-workspace.yaml` pins `onlyBuiltDependencies: [workerd]` so local emulation works, and
+`pnpm-workspace.yaml` pins `allowBuilds: { workerd: true }` so local emulation works, and
 `minimumReleaseAgeExclude` for the two Effect packages pnpm flagged as very fresh.
+
+> **Gotcha:** this repo runs **pnpm 11**, which removed `onlyBuiltDependencies` (it is
+> silently ignored) and defaults `strictDepBuilds` to `true`. A leftover
+> `onlyBuiltDependencies: [workerd]` therefore left workerd's postinstall unapproved and
+> made a fresh `pnpm install` exit 1 with `ERR_PNPM_IGNORED_BUILDS` — which would have
+> failed the CI install gate. The supported form is the `allowBuilds` map above.
 
 beta.84 also bumps Effect to `^4.0.5` (#2372). This repo already resolves `4.0.6` and has
 been exercised on it (install, typecheck, local loop, live deploy), so that breaking
