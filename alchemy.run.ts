@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import { Cache } from "./src/Cache.ts";
 import { Db } from "./src/Db.ts";
 import { Photos } from "./src/Photos.ts";
+import { Events } from "./src/QueueEvents.ts";
 
 /**
  * Composition root.
@@ -28,6 +29,7 @@ export default Alchemy.Stack(
     const photos = yield* Photos;
     const db = yield* Db;
     const cache = yield* Cache;
+    const events = yield* Events;
 
     const worker = yield* Cloudflare.Worker("Api", {
       main: "./src/Api.ts",
@@ -35,9 +37,21 @@ export default Alchemy.Stack(
         PHOTOS: photos,
         DB: db,
         CACHE: cache,
+        EVENTS: events,
+        // Durable Object namespace; the class is exported by src/Api.ts.
+        COUNTER: Cloudflare.DurableObject("Counter", { className: "Counter" }),
       },
+      // Daily housekeeping cron; the Worker's scheduled() handler records fires.
+      crons: ["0 3 * * *"],
       // Workers Cache off: this API returns live D1 contents.
       cache: { enabled: false },
+    });
+
+    // Attach the Worker's queue() handler to the queue as its consumer.
+    const consumer = yield* Cloudflare.Queues.Consumer("ApiAuditConsumer", {
+      queueId: events.queueId,
+      scriptName: worker.workerName,
+      settings: { batchSize: 10, maxRetries: 3, maxWaitTimeMs: 5_000 },
     });
 
     return {
@@ -45,6 +59,9 @@ export default Alchemy.Stack(
       bucketName: photos.bucketName,
       databaseName: db.databaseName,
       kvNamespaceId: cache.namespaceId,
+      queueName: events.queueName,
+      consumerId: consumer.consumerId,
+      crons: worker.crons,
     };
   }),
 );

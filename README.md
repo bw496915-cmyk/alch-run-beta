@@ -14,50 +14,80 @@ different products.
 .
 ├── alchemy.run.ts            # composition root: Stack + providers + state + outputs
 ├── migrations/
-│   └── 0001_init.sql         # applied by alchemy on deploy, hashed so it runs once
+│   ├── 0001_init.sql         # photos table + index
+│   └── 0002_audit.sql        # audit_events table
 ├── src/
-│   ├── Api.ts                # Worker runtime (bundled as the Worker's main)
+│   ├── Api.ts                # Worker runtime: fetch + queue + scheduled, and the Counter DO class
 │   ├── Photos.ts             # R2 bucket
 │   ├── Db.ts                 # D1 database + migrations
-│   └── Cache.ts              # KV namespace
+│   ├── Cache.ts              # KV namespace
+│   └── QueueEvents.ts        # Queue + its Consumer
 ├── tsconfig.json             # strict, no-emit typecheck
 ├── MIGRATION-beta84.md       # the exact diff this tree needs when beta.84 ships
 └── .alchemy/                 # local state + dev logs (gitignored)
 ```
 
-Every provider import lives in the four `src/*.ts` + `alchemy.run.ts` modules that
-declare a resource, and `src/Api.ts` imports nothing from Alchemy at all. That keeps the
-beta.84 package split a handful of one-line import rewrites rather than a repo-wide pass.
+Every provider import lives in the modules that declare a resource, and `src/Api.ts`
+imports nothing from Alchemy at all. That keeps the beta.84 package split a handful of
+one-line import rewrites rather than a repo-wide pass.
 
 ## The API
 
 | Route | Services touched | Behaviour |
 | --- | --- | --- |
 | `GET /health` | — | `{ ok, time }` |
+| `GET /stats` | Durable Object + D1 | Increments the DO counter, returns it with the audit-row count |
+| `GET /audit` | D1 | Rows written asynchronously by the `queue()` handler |
 | `GET /photos` | KV → D1 | Cached index; `x-cache: hit` from KV, `miss` from D1 + refill |
 | `GET /photos/<key>` | R2 + D1 | Object body with content-type/created-at from the D1 row |
-| `PUT /photos/<key>` | R2 + D1 + KV | Writes body, upserts row, busts the index cache |
+| `PUT /photos/<key>` | R2 + D1 + KV + Queue | Writes body, upserts row, busts cache, enqueues an audit event |
 | `DELETE /photos/<key>` | R2 + D1 + KV | Removes object + row, busts the cache |
+
+Three handlers on one Worker:
+
+- **`fetch`** — the routes above.
+- **`queue`** — the audit consumer; writes each batch into D1 (`ack`/`retry` per message).
+  Attached to the queue by `Cloudflare.Queues.Consumer("ApiAuditConsumer", { scriptName: worker.workerName })`.
+- **`scheduled`** — the `0 3 * * *` cron; bumps the DO's `cronFires` counter and records a row.
+
+The **`Counter`** Durable Object is a plain (non-Effect) class exported from `src/Api.ts`
+and bound with `Cloudflare.DurableObject("Counter", { className: "Counter" })`. Its state
+lives in DO storage, so it survives deployments.
 
 ```bash
 URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev
-curl -X PUT --data-binary "# hello" -H "content-type: text/markdown" $URL/photos/hi.md
-curl -D- $URL/photos            # first call: x-cache: miss; second: x-cache: hit
-curl $URL/photos/hi.md
+curl $URL/stats                 # DO counter goes up on every call
+curl -X PUT --data-binary "hi" $URL/photos/hi.txt
+sleep 10 && curl $URL/audit     # the queued event, written by the consumer
 ```
 
 ## Live deployment
 
-Deployed to the `deep-pass` stage on account `7a470541a704caaf91e71efccc78fd36`:
+**Two revisions exist.** The live Worker is revision 1 (R2 + D1 + KV); the Durable
+Object, Queue, Consumer and cron are built and verified locally but **not yet deployed** —
+the credentials expired mid-session (see [Credentials](#credentials)).
 
-| Resource | Physical name |
-| --- | --- |
-| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> |
-| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` |
-| D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` |
-| KV namespace | `2430e2e45a8544568114b1c098146c42` |
+Revision 1 is deployed to the `deep-pass` stage on account `7a470541a704caaf91e71efccc78fd36`:
 
-Tear it down with:
+| Resource | Physical name | Deployed |
+| --- | --- | --- |
+| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | yes (rev 1) |
+| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | yes |
+| D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | yes |
+| KV namespace | `2430e2e45a8544568114b1c098146c42` | yes |
+| Queue + Consumer | `alchrunbeta-events-…` + `ApiAuditConsumer` | **no — planned** |
+| `Counter` Durable Object | class `Counter` on the Worker above | **no — planned** |
+| Cron `0 3 * * *` | on the Worker above | **no — planned** |
+
+Deploying revision 2 picks up all of the above from the same local state:
+
+```bash
+export CLOUDFLARE_API_TOKEN=…
+export CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36
+pnpm exec alchemy deploy --stage deep-pass --yes --no-input
+```
+
+Tear the stage down with:
 
 ```bash
 CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36 \
@@ -66,7 +96,9 @@ CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36 
 
 State for each stage is recorded under `.alchemy/state/AlchRunBeta/<stage>/`, so a stage
 deployed from a different machine needs that state (or a shared state store) to be
-destroyed or updated cleanly.
+destroyed or updated cleanly. Queue consumers reconcile against the Worker's script name,
+so revision 2 must be deployed from this checkout (or with this state) — a fresh state
+would try to recreate resources that already exist.
 
 ## Commands
 
@@ -99,9 +131,17 @@ deployed this stack). Note that `wrangler whoami` lists its scopes *without* any
 yet R2 bucket creation still succeeds — the printed scope list is not the full picture, so
 probe rather than infer.
 
+**Lesson learned the hard way:** wrangler's OAuth **refresh tokens rotate** (single use).
+Refreshing inside a copied config directory spends the refresh token held by the original,
+and deleting the copy then leaves no usable session at all — which is exactly how the
+credentials died mid-session here. If you need credentials to outlive a single command,
+use a real API token (`wrangler login` → dashboard → *My Profile → API Tokens*) or run
+`alchemy profile edit --add Cloudflare` to give Alchemy its own OAuth profile.
+
 ## Verified
 
-Local (`pnpm dev`, workerd) and live (the URL above), on Node 26.11.1 / pnpm 11.28.5:
+Local = `pnpm dev` on workerd. "Live" = the revision-1 deployment at the URL above;
+revision 2 (DO / queue / cron) is local-only until credentials are restored.
 
 | Check | Local | Live |
 | --- | --- | --- |
@@ -111,9 +151,20 @@ Local (`pnpm dev`, workerd) and live (the URL above), on Node 26.11.1 / pnpm 11.
 | `GET /photos` second call → `x-cache: hit`, `source: kv` | ✅ | ✅ |
 | `GET /photos/<key>` → body from R2, content-type from D1 | ✅ | ✅ |
 | `DELETE` → R2 + row gone, cache busted, then 404 | — | ✅ |
-| D1 migrations applied (`photos`, `photos_created_at`, `__alchemy_migrations`) | ✅ | ✅ |
-| `alchemy plan` after deploy → every resource `noop` | — | ✅ |
+| `GET /stats` → DO counter increments across calls (1, 2, 3…) | ✅ | *rev 2* |
+| `PUT` → queue message enqueued (`queued: <uuid>` in the 201 body) | ✅ | *rev 2* |
+| Consumer drains to D1 → `GET /audit` shows the event, `auditEvents` goes 0→1 | ✅ | *rev 2* |
+| D1 migrations applied (`photos`, `photos_created_at`, `audit_events`, `__alchemy_migrations`) | ✅ | rev 1 (2 tables) |
+| `alchemy plan` after deploy → every resource `noop` | — | ✅ (rev 1) |
 | `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — |
+
+Two behaviours worth knowing when you run this yourself:
+
+- The local queue consumer drains on its own pull loop — an event landed in `audit_events`
+  about 15s after the `PUT`, not instantly. Do not read an empty `/audit` as a broken
+  consumer.
+- `scheduled` cannot be exercised locally in seconds. Verifying an actual cron fire needs a
+  live deploy with a `* * * * *` trigger (the committed schedule is daily at 03:00 UTC).
 
 One caveat on that green typecheck: it covers *this* repo's code, not every corner of
 Alchemy's own types. beta.84 ships #2413 precisely to make `alchemy/State` type-check under

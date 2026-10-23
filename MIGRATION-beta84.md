@@ -31,9 +31,9 @@ resolve, and if only the scoped packages are there, the core is still beta.83.
 
 ---
 
-## The entire diff for this tree: 5 files
+## The entire diff for this tree: 6 files
 
-Four of them change one import line each; `src/Api.ts` changes not at all.
+Five of them change one import line each; `src/Api.ts` changes not at all.
 
 ### 1. `package.json`
 
@@ -69,22 +69,25 @@ your project's dependencies. Without `@alchemy.run/cloudflare` in `package.json`
 `import * as Alchemy from "alchemy"` stays: core (`Stack`, `localState`, `Output`, …)
 remains in the `alchemy` package.
 
-### 3. `src/Photos.ts`, `src/Db.ts`, `src/Cache.ts`
+### 3. `src/Photos.ts`, `src/Db.ts`, `src/Cache.ts`, `src/QueueEvents.ts`
 
-The same one-line swap in each of the three resource modules:
+The same one-line swap in each of the four resource modules:
 
 ```diff
 -import * as Cloudflare from "alchemy/Cloudflare";
 +import * as Cloudflare from "@alchemy.run/cloudflare";
 ```
 
-`Cloudflare.R2.Bucket`, `Cloudflare.D1.Database` and `Cloudflare.KV.Namespace` all arrive
-through that one import, so the split costs one line per module that declares a resource.
+`Cloudflare.R2.Bucket`, `Cloudflare.D1.Database`, `Cloudflare.KV.Namespace` and
+`Cloudflare.Queues.Queue` all arrive through that one import, so the split costs one line
+per module that declares a resource.
 
 ### 4. `src/Api.ts` — no change
 
-The Worker imports nothing from Alchemy. It talks to `env.PHOTOS`, `env.DB` and
-`env.CACHE`, which are bindings, not provider imports.
+The Worker imports nothing from Alchemy. It talks to `env.PHOTOS`, `env.DB`, `env.CACHE`,
+`env.COUNTER` and `env.EVENTS`, which are bindings, not provider imports. It also exports
+the plain `Counter` Durable Object class, which is bound from `alchemy.run.ts`, so the
+package split does not reach into it either.
 
 ### 5. `migrations/0001_init.sql` — no change
 
@@ -94,7 +97,7 @@ package split.
 ### That is all
 
 ```bash
-# should print exactly four lines: alchemy.run.ts, src/Db.ts, src/Cache.ts, src/Photos.ts
+# should print exactly five lines: alchemy.run.ts, src/{Db,Cache,Photos,QueueEvents}.ts
 rg -n 'from "alchemy/' alchemy.run.ts src/
 ```
 
@@ -146,7 +149,7 @@ Optional at beta.84, not needed for this stack: `Cloudflare.Hyperdrive.lookup`,
 ```bash
 pnpm install
 pnpm typecheck          # expect exit 0, no new errors
-git diff --stat         # expect exactly 5 changed files (+ pnpm-lock.yaml)
+git diff --stat         # expect exactly 6 changed files (+ pnpm-lock.yaml)
 pnpm dev                # local loop: 1337, same routes, D1+KV+R2 emulated
 ```
 
