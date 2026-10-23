@@ -157,8 +157,8 @@ Cloudflare's declarative `exports` map on every deploy. Verified on the live scr
 inferred:
 
 ```
-GET /accounts/<acct>/workers/scripts/<name>/versions/<id>
-  → exports: {"Counter":{"type":"durable-object","storage":"sqlite"}}
+GET /accounts/<acct>/workers/services/<name>/environments/production
+  → script.exports: {"Counter":{"type":"durable-object","storage":"sqlite"}}
 ```
 
 The same map is present on both live versions (including the cron-only redeploy), and the
