@@ -2,6 +2,8 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 
+import { Cache } from "./src/Cache.ts";
+import { Db } from "./src/Db.ts";
 import { Photos } from "./src/Photos.ts";
 
 /**
@@ -24,17 +26,25 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const photos = yield* Photos;
+    const db = yield* Db;
+    const cache = yield* Cache;
 
     const worker = yield* Cloudflare.Worker("Api", {
       main: "./src/Api.ts",
-      env: { PHOTOS: photos },
-      // Workers Cache off: this API returns live bucket contents.
+      env: {
+        PHOTOS: photos,
+        DB: db,
+        CACHE: cache,
+      },
+      // Workers Cache off: this API returns live D1 contents.
       cache: { enabled: false },
     });
 
     return {
       url: worker.url.as<string>(),
       bucketName: photos.bucketName,
+      databaseName: db.databaseName,
+      kvNamespaceId: cache.namespaceId,
     };
   }),
 );

@@ -1,122 +1,124 @@
 # alch-run-beta
 
-A working Alchemy 2.0 project, pinned to **`alchemy@2.0.0-beta.83`** — deliberately not
-`2.0.0-beta.84`, which is announced but not yet published to npm (see
-[Why beta.83](#why-beta83-not-beta84)).
+An Alchemy 2.0 project pinned to **`alchemy@2.0.0-beta.83`** (deliberately not
+`2.0.0-beta.84`, which is announced but unpublished — see
+[Why beta.83](#why-beta83-not-beta84)), and **deployed live on Cloudflare**.
 
-One Cloudflare Worker in front of one R2 bucket. It type-checks, and the full local
-loop (`alchemy dev` → workerd → real R2 binding) has been exercised end to end.
+One Worker over three data services — R2 for object bodies, D1 for row metadata,
+KV for a cached index — so a single request exercises real bindings from three
+different products.
 
 ## Layout
 
 ```
 .
-├── alchemy.run.ts        # composition root: Stack + providers + state + outputs
+├── alchemy.run.ts            # composition root: Stack + providers + state + outputs
+├── migrations/
+│   └── 0001_init.sql         # applied by alchemy on deploy, hashed so it runs once
 ├── src/
-│   ├── Api.ts            # Worker runtime code (bundled as the Worker's main)
-│   └── Photos.ts         # one Resource, in its own module
-├── tsconfig.json         # strict, no-emit typecheck
-├── MIGRATION-beta84.md   # the exact diff this tree needs when beta.84 ships
-└── .alchemy/             # local state + dev logs (gitignored)
+│   ├── Api.ts                # Worker runtime (bundled as the Worker's main)
+│   ├── Photos.ts             # R2 bucket
+│   ├── Db.ts                 # D1 database + migrations
+│   └── Cache.ts              # KV namespace
+├── tsconfig.json             # strict, no-emit typecheck
+├── MIGRATION-beta84.md       # the exact diff this tree needs when beta.84 ships
+└── .alchemy/                 # local state + dev logs (gitignored)
 ```
 
-Two deliberate choices, both to keep the beta.84 move small:
+Every provider import lives in the four `src/*.ts` + `alchemy.run.ts` modules that
+declare a resource, and `src/Api.ts` imports nothing from Alchemy at all. That keeps the
+beta.84 package split a handful of one-line import rewrites rather than a repo-wide pass.
 
-- **Every provider import lives in exactly two files** (`alchemy.run.ts`, `src/Photos.ts`).
-  beta.84 moves providers into their own packages, so the split is
-  `"alchemy/Cloudflare"` → `"@alchemy.run/cloudflare"` on two lines, not a repo-wide rewrite.
-- **`src/Api.ts` imports nothing from Alchemy.** Worker code talks to bindings, not to
-  providers, so it is untouched by the split.
+## The API
 
-## Requirements
-
-- Node **24.11.1+** (verified on 26.11.1)
-- pnpm
+| Route | Services touched | Behaviour |
+| --- | --- | --- |
+| `GET /health` | — | `{ ok, time }` |
+| `GET /photos` | KV → D1 | Cached index; `x-cache: hit` from KV, `miss` from D1 + refill |
+| `GET /photos/<key>` | R2 + D1 | Object body with content-type/created-at from the D1 row |
+| `PUT /photos/<key>` | R2 + D1 + KV | Writes body, upserts row, busts the index cache |
+| `DELETE /photos/<key>` | R2 + D1 + KV | Removes object + row, busts the cache |
 
 ```bash
-pnpm install     # already run
+URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev
+curl -X PUT --data-binary "# hello" -H "content-type: text/markdown" $URL/photos/hi.md
+curl -D- $URL/photos            # first call: x-cache: miss; second: x-cache: hit
+curl $URL/photos/hi.md
 ```
+
+## Live deployment
+
+Deployed to the `deep-pass` stage on account `7a470541a704caaf91e71efccc78fd36`:
+
+| Resource | Physical name |
+| --- | --- |
+| Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> |
+| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` |
+| D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` |
+| KV namespace | `2430e2e45a8544568114b1c098146c42` |
+
+Tear it down with:
+
+```bash
+CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36 \
+  pnpm exec alchemy destroy --stage deep-pass --yes
+```
+
+State for each stage is recorded under `.alchemy/state/AlchRunBeta/<stage>/`, so a stage
+deployed from a different machine needs that state (or a shared state store) to be
+destroyed or updated cleanly.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts` and `src/` |
-| `pnpm dev` | Local loop: bucket + Worker on workerd, HMR at <http://localhost:1337> |
+| `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `migrations/` |
+| `pnpm dev` | Local loop on workerd (D1 + KV + R2 emulated), HMR at <http://localhost:1337> |
 | `pnpm plan` | Diff against the current stage, apply nothing |
 | `pnpm deploy` | Plan → confirm → apply |
 | `pnpm destroy` | Delete everything in the stage |
 
-Extra CLI flags worth knowing: `--stage <name>`, `--profile <name>`,
-`--dry-run` (deploy), `--no-input` (no prompts/TUI, for scripts).
+Flags worth knowing: `--stage <name>`, `--profile <name>`, `--dry-run`, `--yes`,
+`--no-input`. Stages default to `live_${USER}` for `plan`/`deploy` and `dev_${USER}` for
+`dev`.
 
-Stages default to `live_${USER}` for `plan`/`deploy` and `dev_${USER}` for `dev`.
+## Credentials
 
-## The API
+`pnpm dev` needs none — everything runs locally on workerd.
 
-| Route | Behaviour |
-| --- | --- |
-| `GET /health` | `{ ok, time }` |
-| `GET /photos` | Lists up to 100 keys in the bucket |
-| `PUT /photos/<key>` | Writes the request body under `<key>` |
-| anything else | 404 JSON |
+`plan`, `deploy` and `destroy` need a Cloudflare account, configured either as a profile
+(`alchemy profile edit --add Cloudflare`, OAuth) or as environment variables:
 
 ```bash
-curl localhost:1337/health
-curl -X PUT --data-binary "hi" localhost:1337/photos/hello.txt   # 201
-curl localhost:1337/photos                                       # {"count":1,"keys":["hello.txt"],...}
+export CLOUDFLARE_API_TOKEN=…      # API token, or a `wrangler login` OAuth token
+export CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36
 ```
 
-## Deploying needs credentials
+A `wrangler login` OAuth token works directly as `CLOUDFLARE_API_TOKEN` (that is what
+deployed this stack). Note that `wrangler whoami` lists its scopes *without* any R2 entry
+yet R2 bucket creation still succeeds — the printed scope list is not the full picture, so
+probe rather than infer.
 
-`plan`, `deploy` and `destroy` talk to the real Cloudflare API. Until an account is
-configured they fail — by design — with:
+## Verified
 
-```
-error: Provider 'Cloudflare' is not configured in profile 'default'.
-       Run `alchemy profile edit --profile default --add Cloudflare`.
-```
+Local (`pnpm dev`, workerd) and live (the URL above), on Node 26.11.1 / pnpm 11.28.5:
 
-Two ways to fix that:
-
-1. **Interactive profile (OAuth):** `alchemy profile edit --add Cloudflare`
-2. **Env vars (CI):** `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`
-
-`alchemy dev` needs neither: everything runs locally on workerd.
-
-## State
-
-This project uses `Alchemy.localState()` — a state file under `.alchemy/`, nothing to
-bootstrap and nothing shared between machines. That is the friendliest setup for
-evaluating a beta.
-
-For a shared or CI-visible state store, switch `state:` in `alchemy.run.ts` to
-`Cloudflare.state()` (bucket-backed). On beta.84+ the bootstrap command moves to
-`alchemy state bootstrap --backend cloudflare`; see `MIGRATION-beta84.md`.
-
-## Verified in this repo
-
-Run on Node 26.11.1 / pnpm 11.28.5:
-
-| Check | Result |
-| --- | --- |
-| `pnpm install` | 159 packages, exit 0 |
-| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` |
-| `alchemy --version` | `alchemy v2.0.0-beta.83` |
-| `alchemy state list` | exit 0 (local backend, empty) |
-| `alchemy dev` | plan `2 to create`, bucket + Worker created (local), served `http://localhost:1337` |
-| Worker routes | `/health` 200 · `PUT /photos/hello.txt` 201 · `GET /photos` lists it · unknown path 404 · missing key 400 |
-| HMR | Worker rebuilt and reloaded on edit in ~69ms |
-
-**Not verified — nothing here has been deployed to Cloudflare.** `plan` and
-`deploy --dry-run` both stop at the credentials gate above, which is the expected
-boundary without an account.
+| Check | Local | Live |
+| --- | --- | --- |
+| `GET /health` | 200 | 200 |
+| `PUT /photos/<key>` (R2 + D1 + KV bust) | 201 | 201 |
+| `GET /photos` first call → `x-cache: miss`, `source: d1` | ✅ | ✅ |
+| `GET /photos` second call → `x-cache: hit`, `source: kv` | ✅ | ✅ |
+| `GET /photos/<key>` → body from R2, content-type from D1 | ✅ | ✅ |
+| `DELETE` → R2 + row gone, cache busted, then 404 | — | ✅ |
+| D1 migrations applied (`photos`, `photos_created_at`, `__alchemy_migrations`) | ✅ | ✅ |
+| `alchemy plan` after deploy → every resource `noop` | — | ✅ |
+| `pnpm typecheck` | exit 0, `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` | — |
 
 One caveat on that green typecheck: it covers *this* repo's code, not every corner of
-Alchemy's own types. beta.84 ships a fix (#2413) whose whole purpose is making
-`alchemy/State` type-check under `exactOptionalPropertyTypes` — a sign that strictness
-this high was not universally clean in beta.83. This tree never imports `alchemy/State`
-types directly (it calls `Alchemy.localState()`), which is why it comes out clean.
+Alchemy's own types. beta.84 ships #2413 precisely to make `alchemy/State` type-check under
+`exactOptionalPropertyTypes`; this tree never imports those types (it calls
+`Alchemy.localState()`), which is why it comes out clean.
 
 ## Pinned versions
 
@@ -129,43 +131,37 @@ types directly (it calls `Alchemy.localState()`), which is why it comes out clea
 | `@types/node` | `24.19.2` |
 | `workerd` (transitive) | `1.20261002.1` |
 
-`pnpm-workspace.yaml` pins `onlyBuiltDependencies: [workerd]` so local emulation works,
-and `minimumReleaseAgeExclude` for the two Effect packages pnpm flagged as very fresh.
+`pnpm-workspace.yaml` pins `onlyBuiltDependencies: [workerd]` so local emulation works, and
+`minimumReleaseAgeExclude` for the two Effect packages pnpm flagged as very fresh.
 
-beta.84 also bumps Effect to `^4.0.5` (#2372). This repo already resolves `4.0.6`, so that
-breaking change costs nothing here — and beta.83 has been exercised on 4.0.6 (install,
-typecheck, and the live dev loop), so the bump is not a hidden risk either.
+beta.84 also bumps Effect to `^4.0.5` (#2372). This repo already resolves `4.0.6` and has
+been exercised on it (install, typecheck, local loop, live deploy), so that breaking
+change costs nothing here.
 
 ## Why beta.83, not beta.84
 
 The [2.0.0-beta.84 release post](https://alchemy.run/blog/2026-10-22-beta-84/) is live,
-but as of **2026-10-23** nothing in it can be installed. Four separate checks agree:
+but as of **2026-10-23** nothing in it can be installed. Four independent checks agree:
 
 | Signal | Result |
 | --- | --- |
 | `alchemy` on npm | `latest` = `2.0.0-beta.83`, published 2026-10-12 — no beta.84 |
 | Split provider packages | only `0.0.0` exists for `@alchemy.run/{aws,cloudflare,domain,gcp,core}` |
-| What `@alchemy.run/{aws,cloudflare,core}@0.0.0` is | a **stale 2025-11-03 prototype that depends on Effect v3** (`cloudflare` wants `effect@^3.17`, `aws` wants `effect@^3.18`) — an abandoned prototype squatting the name, not the beta.84 package |
+| What `@alchemy.run/{aws,cloudflare,core}@0.0.0` is | a **stale 2025-11-03 prototype depending on Effect v3** (`cloudflare` wants `effect@^3.17`, `aws` wants `effect@^3.18`) — an abandoned prototype squatting the name |
 | What `@alchemy.run/{domain,gcp}@0.0.0` is | a 2026-10-21 publish stub: 2 files, 669 / 696 bytes, no code |
-| The post's own install route | its command uses `https://pkg.alchemy.run/…/2e7fdc5`; that proxy 404s `{"error":"alchemy@2e7fdc5 not found"}`, and so do `latest` and `2.0.0-beta.84` paths |
+| The post's own install route | `https://pkg.alchemy.run/…/2e7fdc5` 404s `{"error":"alchemy@2e7fdc5 not found"}`; `latest` and `2.0.0-beta.84` paths 404 too |
 
-The timing is the tell: `@alchemy.run/domain` and `@alchemy.run/gcp` were reserved on
-**2026-10-21**, the day before the post, one of them explicitly described as a
-"Temporary package placeholder for staged publishing". The publish was staged; the
-artifacts never landed.
+`@alchemy.run/domain` and `@alchemy.run/gcp` were reserved on **2026-10-21**, the day
+before the post, one of them described as a "Temporary package placeholder for staged
+publishing". The publish was staged; the artifacts never landed.
 
-> **Trap:** never `pnpm add @alchemy.run/cloudflare` without an exact version today. It
-> resolves to `0.0.0`, an Effect-v3 prototype from a year earlier, and will pull a second
-> copy of Effect into the tree.
+What *is* proven is how the split will be versioned: alchemy's existing scoped helpers
+(`@alchemy.run/cloudflare-runtime`, `floci`, `node-utils`, `frontend-frameworks`) all sit
+at exactly `2.0.0-beta.83` — lockstep with the core package. So
+`@alchemy.run/cloudflare@2.0.0-beta.84` is the expected pin, not a guess.
 
-What *is* already proven is how the split will be versioned: alchemy's own scoped helper
-packages (`@alchemy.run/cloudflare-runtime`, `floci`, `node-utils`,
-`frontend-frameworks`) all sit at exactly `2.0.0-beta.83` — lockstep with the core
-package. So `@alchemy.run/cloudflare@2.0.0-beta.84` is the expected pin, not a guess.
-
-beta.84 also rewrites imports (`alchemy/Cloudflare` → `@alchemy.run/cloudflare`), so a
-project scaffolded against the beta.84 API would not even resolve today. This repo takes
-the opposite trade: build on the published version, keep the split a two-line diff.
+> **Trap:** never `pnpm add @alchemy.run/cloudflare` without an exact version. It resolves
+> to `0.0.0`, the Effect-v3 prototype, and pulls a second Effect into the tree.
 
 Check the state of the world before migrating:
 

@@ -3,6 +3,7 @@ node_modules/
 
 # Alchemy local state (created by `alchemy plan / deploy / dev`)
 .alchemy/
+.home/
 
 # Local secrets / env files
 .env
