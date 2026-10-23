@@ -27,9 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11.28.5"
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Check for CLOUDFLARE_API_TOKEN
         id: creds
@@ -40,6 +46,12 @@ jobs:
             echo "proceed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No CLOUDFLARE_API_TOKEN secret; skipping the cron health check."
           fi
+
+      - name: Install dependencies
+        if: steps.creds.outputs.proceed == 'true'
+        # `scripts/cron-health.ts` imports `alchemy/Cli/Format` for its timestamps
+        # (the canonical formatter — see CONVENTIONS), so this job installs first.
+        run: pnpm install --frozen-lockfile
 
       - name: Assert delivered cron matches configured
         if: steps.creds.outputs.proceed == 'true'

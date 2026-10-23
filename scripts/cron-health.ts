@@ -27,6 +27,7 @@
  * Exit codes: 0 healthy, 1 assertion failed, 2 misconfigured or unreachable.
  */
 
+import { formatLocalTimestamp } from "alchemy/Cli/Format";
 import { spawnSync } from "node:child_process";
 
 import { evaluate, readEnvelope, type Delivery } from "./cron-health-logic.ts";
@@ -151,25 +152,16 @@ const delivered: Delivery[] = (telemetry.events?.events ?? [])
 
 const verdict = evaluate({ configured, delivered, to, maxAgeHours: MAX_AGE_HOURS, windowHours: WINDOW_HOURS });
 
-/**
- * UTC, and hand-rolled on purpose.
- *
- * `alchemy/Cli/Format` ships the canonical equivalent (`formatLocalTimestamp`,
- * `formatElapsed`, `TAIL_COLORS`), reachable through the package's `./*` export —
- * but this script is **dependency-free** and CI runs it *before* `pnpm install`
- * (the cron job installs nothing at all), so importing it would fail exactly when
- * the check is needed. UTC (not local) also lines the output up with the
- * platform's telemetry timestamps. See `CONVENTIONS.md` deny-list note.
- */
-const fmt = (date: Date): string => `${date.toISOString().slice(0, 19)}Z`;
-
+// Timestamps come from the canonical formatter (`alchemy/Cli/Format`) rather than a
+// hand-rolled ISO slice, so this prints times exactly as the alchemy CLI does — tz
+// labelled, so it stays unambiguous. See the CONVENTIONS deny-list note.
 console.log(`worker     ${worker}`);
 console.log(`configured ${JSON.stringify(configured)}`);
-console.log(`window     ${fmt(from)} -> ${fmt(to)}  (${delivered.length} delivered)`);
+console.log(`window     ${formatLocalTimestamp(from)} -> ${formatLocalTimestamp(to)}  (${delivered.length} delivered)`);
 
 for (const event of [...delivered].sort((a, b) => a.at.getTime() - b.at.getTime()).slice(-12)) {
   const mark = configured.includes(event.cron) ? " " : "x";
-  console.log(`  ${mark} ${fmt(event.at)}  ${event.cron.padEnd(14)} v${event.version.slice(0, 8)} ${event.outcome}`);
+  console.log(`  ${mark} ${formatLocalTimestamp(event.at)}  ${event.cron.padEnd(14)} v${event.version.slice(0, 8)} ${event.outcome}`);
 }
 
 for (const advisory of verdict.advisories) console.log(`\nnote: ${advisory}`);

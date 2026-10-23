@@ -1,7 +1,10 @@
+import { formatLocalTimestamp } from "alchemy/Cli/Format";
+
 /**
  * The decision logic of the cron health check, kept free of network and process
  * concerns so it can be unit-tested. `scripts/cron-health.ts` supplies the two
- * observations; this decides.
+ * observations; this decides. Timestamps are rendered with the canonical
+ * formatter (`alchemy/Cli/Format`) rather than a hand-rolled ISO slice.
  */
 
 export interface Delivery {
@@ -78,7 +81,7 @@ export const evaluate = (input: {
     const last = retired.at(-1);
     advisories.push(
       `${retired.length} of ${sorted.length} deliveries in this window used a retired expression` +
-        (last ? ` (last at ${last.at.toISOString()})` : "") +
+        (last ? ` (last at ${formatLocalTimestamp(last.at)})` : "") +
         `; harmless once the newest delivery is current, anomalous if it is not`,
     );
   }
