@@ -23,9 +23,10 @@ has to move with it (`alchemy/Cloudflare` → `@alchemy.run/cloudflare`).
    with `WorkerVersionConfigError`.
 3. Expect the import rewrite to be the whole diff: `MIGRATION-beta84.md` enumerates the six files.
    `src/Api.ts` needs nothing — it imports no provider.
-4. Re-check the workarounds with expiry conditions in `CONVENTIONS.md`; at minimum
-   [#2235](https://github.com/alchemy-run/alchemy/issues/2235) (`versionId` / `deploymentId`
-   outputs) is closed upstream and can be reverted.
+4. Re-check the workarounds with expiry conditions in `CONVENTIONS.md`. The first one expires
+   with this upgrade: [#2235](https://github.com/alchemy-run/alchemy/issues/2235)
+   (`versionId` / `deploymentId` outputs) was fixed by PR #2241 merged 2026-10-20 and ships in
+   beta.84 — so on the new pin, re-add both outputs and assert they are defined.
 
 ## Verify, don't assume
 

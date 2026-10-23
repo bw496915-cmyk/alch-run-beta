@@ -79,5 +79,8 @@ incident hours later.
 11. Check scratch space early (`echo x > /tmp/x`): a read-only session fails at the write, and that
     failure looks like an empty network response — the report then reads complete while missing
     whatever could not be staged.
-12. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
+12. Never cite an issue as "closed" without its `state_reason` **and** the PR or commit that closed it:
+    fixed, duplicate and wontfix all render as `state: closed`, and only one of them lets a
+    workaround expire.
+13. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
     (`cpuTimeMs`, exception objects, entrypoint events) before blaming the code.

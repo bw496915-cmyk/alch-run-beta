@@ -57,9 +57,9 @@ target; applying its mandate here would mean implementing resources nobody asked
 A workaround that outlives its cause quietly becomes a design choice, so each one names the
 condition under which it should be reverted.
 
-| Workaround | Upstream issue | Expires when |
-| --- | --- | --- |
-| `alchemy.run.ts` does **not** surface `versionId` / `deploymentId` in the stack outputs | [#2235](https://github.com/alchemy-run/alchemy/issues/2235) "Full Worker deployments return no versionId or deploymentId" (filed 2026-10-13 against `alchemy@2.0.0-beta.83`, now **closed**) | the release carrying the fix is pinned — re-add both outputs to the stack's return value and assert they are defined |
+| Workaround | Upstream issue | Closure (verified, not assumed) | Expires when |
+| --- | --- | --- | --- |
+| `alchemy.run.ts` does **not** surface `versionId` / `deploymentId` in the stack outputs | [#2235](https://github.com/alchemy-run/alchemy/issues/2235) "Full Worker deployments return no versionId or deploymentId", filed 2026-10-13 against `alchemy@2.0.0-beta.83` | **fixed**, not duplicate/wontfix: `state_reason: completed`, closed 2026-10-20 by sam-goodwin via merged PR [#2241](https://github.com/alchemy-run/alchemy/pull/2241) *fix(cloudflare): return full deployment identities* (merge commit `68a04c07f4`, merged into `main` 2026-10-20T07:57Z) | the pin reaches a release whose changelog lists **#2241** — expected **beta.84**, unpublished as of 2026-10-23, whose notes already say "a full Worker deploy returns its versionId and deploymentId (#2241)". Then delete the workaround, re-add both outputs, and assert they are **defined in the deploy output**, not merely present on the type: the type carried both fields while the create/update path never set them, which is exactly why this bug hid |
 
 ---
 
