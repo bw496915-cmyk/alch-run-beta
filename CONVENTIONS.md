@@ -56,6 +56,22 @@ Effect-native equivalents (`Workers.cron` + `CronEventSourceLive`, `consumeQueue
 
 ## Gates
 
+These are enforced by `test/policy.test.ts` (part of `pnpm test`), in three layers:
+
+| Layer | Mechanism | Fails when |
+| --- | --- | --- |
+| 3. Shape | compile-time: every `ApiEnv` member must be mutually assignable with the real `R2Bucket` / `D1Database` / `KVNamespace<string>` / `Queue<unknown>` / `DurableObjectNamespace<Counter>`, each checked for `any` collapse; `fetch`/`scheduled` must take a third `ExecutionContext` parameter; `Counter` must expose `increment`/`snapshot` | someone replaces the inferred env with a stand-in — **whatever it is called** |
+| 2. Existence | every `interface`/`type` declaration in `src/` and `alchemy.run.ts` must appear in `ALLOWED_DECLARATIONS`, each with a written reason | **any** new declaration appears, or an allow-list entry goes stale |
+| 1. Behaviour | greps for a `…Like` stand-in, `new Response(JSON.stringify`, and `https://counter`-style RPC | one of those specific patterns returns |
+
+Layer 2 is the one that answers "what if someone adds a *fifth* hand-written interface under a
+name nobody thought of". Verified by mutation: inserting `interface DatabaseShim { … }` into
+`src/Api.ts` leaves `tsc` green and passes the greps, and layer 2 alone fails with
+`new declarations must be justified in ALLOWED_DECLARATIONS: expected [ 'DatabaseShim' ] to deeply equal []`.
+Adding it to the allow-list is the review gate — a visible diff, not a silent regression.
+
+The shell-level greps below remain useful when reading a diff by hand:
+
 A change is rejected if any of these hits in `src/` or `alchemy.run.ts`:
 
 ```bash
@@ -90,8 +106,9 @@ Done: interfaces deleted (14 → 0), `env` typed by `InferEnv`, handlers take `c
 `Response.json`, DO on `extends DurableObject` with `ctx.storage.transaction`, typed RPC
 instead of URL dispatch.
 
+Done: gates encoded as `test/policy.test.ts` (three layers, mutation-checked).
+
 Remaining:
 
 1. Delete `scripts/alch.sh` **and** repoint `.github/workflows/ci.yml`'s plan step at the CLI in
    the same change; move its flags into `package.json` scripts.
-2. Encode the gates above as a test so the policy is enforced, not just documented.
