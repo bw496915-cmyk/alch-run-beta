@@ -3,6 +3,9 @@
 #
 #   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh plan
 #   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh deploy
+#   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh drift
+#   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh logs --tail
+#   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh check-env
 #   CLOUDFLARE_API_TOKEN=... ./scripts/alch.sh destroy
 #
 # STAGE overrides the stage (default: deep-pass). The token must be a real API
@@ -13,6 +16,7 @@ set -euo pipefail
 STAGE="${STAGE:-deep-pass}"
 ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-7a470541a704caaf91e71efccc78fd36}"
 CMD="${1:-plan}"
+shift || true
 
 if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   echo "CLOUDFLARE_API_TOKEN is not set." >&2
@@ -28,11 +32,18 @@ export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"
 cd "$(dirname "$0")/.."
 
 case "$CMD" in
-  plan)    exec pnpm exec alchemy plan    --stage "$STAGE" --no-input ;;
-  deploy)  exec pnpm exec alchemy deploy  --stage "$STAGE" --yes --no-input ;;
-  destroy) exec pnpm exec alchemy destroy --stage "$STAGE" --yes --no-input ;;
+  plan)      exec pnpm exec alchemy plan      --stage "$STAGE" --no-input ;;
+  deploy)    exec pnpm exec alchemy deploy    --stage "$STAGE" --yes --no-input ;;
+  destroy)   exec pnpm exec alchemy destroy   --stage "$STAGE" --yes --no-input ;;
+  # Resources changed or deleted outside alchemy. Read-only unless --repair.
+  drift)     exec pnpm exec alchemy drift     --stage "$STAGE" --no-input "$@" ;;
+  # Provider credential/env preflight; exits 1 when something is missing (CI-safe).
+  check-env) exec pnpm exec alchemy provider check-env --config alchemy.run.ts ;;
+  # Past entries by default; pass --tail for live streaming.
+  logs)      exec pnpm exec alchemy logs      --stage "$STAGE" "$@" ;;
+  state)     exec pnpm exec alchemy state list ;;
   *)
-    echo "usage: $0 {plan|deploy|destroy}   (STAGE=... to override)" >&2
+    echo "usage: $0 {plan|deploy|drift|logs|check-env|state|destroy}   (STAGE=... to override)" >&2
     exit 2
     ;;
 esac

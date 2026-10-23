@@ -108,12 +108,38 @@ rg -n 'from "alchemy/' alchemy.run.ts src/
 | beta.84 breaking change | Applies here? | Why |
 | --- | --- | --- |
 | Providers moved into `@alchemy.run/*` packages | **Yes** | The 3 files above; every provider import is concentrated in two of them |
-| State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | This repo uses `Alchemy.localState()`, and no bootstrap/prisma command is wired into any script. It becomes relevant only if you switch to `Cloudflare.state()` |
+| State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | This repo uses `Alchemy.localState()`, and no bootstrap/prisma command is wired into any script. It becomes relevant only if you switch to `Cloudflare.state()` — see the version table below before writing either command |
 | **Effect bumped to `^4.0.5`** (#2372) | No | Already resolved: `effect@4.0.6` and `@effect/platform-node@4.0.6` satisfy it, and beta.83 has been run on 4.0.6 (install, typecheck, live dev loop) |
 | `AWS.Lambda.isBindingHost` removed; AWS hosts now get IAM grants | No | No AWS resources in this stack |
 | Distilled error classes are no longer Effect Schemas | No | No distilled SDK error handling in this code |
 | Prisma/Neon env values use the runtime wire format (`{"_tag":"Redacted",…}`) | No | No Prisma or Neon providers |
 | AWS framework sites default to Web Functions | No | No AWS |
+
+### State store commands: what exists *today* on beta.83
+
+Easy to get backwards, so here is the pinned reality (`alchemy --help` output, not docs):
+
+| Command | beta.83 (this repo) | beta.84 |
+| --- | --- | --- |
+| `alchemy provider cloudflare bootstrap` | **exists** — the only way to bootstrap a Cloudflare state store today | removed; prints the replacement and exits 1 |
+| `alchemy state bootstrap --backend cloudflare` | **does not exist** (`alchemy state --help` lists only `list`, `read`, `delete`) | the new form |
+| `Cloudflare.state()` | takes **no arguments** (`state: () => Layer<State, …>`) | gains `{ name }` / `{ workerName }` named stores |
+
+So on beta.83, moving this repo from `Alchemy.localState()` to a shared state store means
+`Cloudflare.state()` **plus** a one-time `alchemy provider cloudflare bootstrap`. beta.84 then
+rewrites that one command. Nothing here wires either, which is why the upgrade is inert — but
+do not "fix" a beta.83 project by writing the beta.84 form into it; it fails as an unknown
+command.
+
+### Also available on beta.83 and currently unused
+
+These exist in the pinned CLI and cost nothing to adopt (wired into `scripts/alch.sh`):
+
+```bash
+./scripts/alch.sh check-env   # alchemy provider check-env — CI preflight, exits 1 if creds/env missing
+./scripts/alch.sh drift       # alchemy drift — detects resources changed/deleted outside alchemy
+./scripts/alch.sh logs --tail # alchemy logs — past entries by default, live with --tail
+```
 
 ### Relocations *within* packages at beta.84
 
