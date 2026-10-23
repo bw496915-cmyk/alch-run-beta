@@ -86,11 +86,11 @@ script-/delivery-layer behaviour rather than a property of the cron shape. Not
 testable further without experimenting on `deep-pass`; the next real signal is
 the `0 3 * * *` fire on 2026-10-24.
 
-> **Update — 2026-10-23 (ground-truth audit).** The replay is **not bounded at ~16 minutes**.
-> `GET …/scripts/{name}/schedules` lists only `0 3 * * *`, yet Workers Observability still shows
-> `* * * * *` deliveries at **19:10:56Z and 19:54:01Z** on the current version — roughly 1–2 hours
-> after the probe trigger was removed. `pnpm cron-health` catches it (exit 1), which is why the CI
-> job stays red until the daily fire; evidence in `AUDIT-2026-10-23-ground-truth.md`.
+> **Update — 2026-10-23 (controlled trial).** A raw-API attach/remove reproduces the replay: after
+> removal the scheduler kept delivering the retired `* * * * *` for **~6 minutes**, then stopped —
+> *within* the ~16 minutes this file documents, and owned by Cloudflare (alchemy is not in the loop;
+> the trigger was attached and removed through the platform API). Telemetry also shows unexplained
+> `* * * * *` at 19:10Z and 19:54Z (n = 1); those are an open anomaly, not a bound.
 
 ## Final state
 

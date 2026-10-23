@@ -25,7 +25,7 @@ Worker, a clean-room `deploy`/`destroy` on a throwaway stage, the pinned package
 | KV index cache answers `x-cache: hit` | KV namespace holds **zero keys** (`photos:index` → 10009 not found) | ⚠️ only true within the 60 s TTL; cold otherwise |
 | Compatibility surface | `compatibility_date: 2026-08-31`, `compatibility_flags: ["new_module_registry"]` | ⚠️ unclaimed in the docs |
 | DLQ: "lands here instead of being dropped" | after 2 poisons the DLQ reports `backlog_count: 2`, and `consumers: []` | ⚠️ true, but nothing drains or alerts it |
-| A retired `* * * * *` is replayed for **~16 min** after the schedule changes (CRON-FINDINGS / REVIEW §8) | `/schedules` lists **only** `0 3 * * *`, yet Workers Observability shows `* * * * *` deliveries at **19:10 and 19:54** on the current version — ~1–2 h *after* the probe trigger was removed | ❌ **refuted** — the replay outlives the documented window by an order of magnitude |
+| A retired `* * * * *` is replayed for a bounded window | **controlled trial** (raw-API attach at 21:00Z, remove at 21:06Z): the scheduler replayed it **~6 min** after removal (21:07:01Z…21:12:01Z), then stopped — within the documented ~16 min. Separately, telemetry showed `* * * * *` at 19:10Z and 19:54Z (n = 1) | ⚠️ owner is **Cloudflare** (alchemy not in the loop). The window is **not** an order of magnitude longer; the 19:10/19:54 samples are an open anomaly |
 
 ## 2. Failure plane — forced, not asserted
 

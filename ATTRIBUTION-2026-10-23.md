@@ -52,16 +52,22 @@ scripts; one `curl` slipped in during a purge check and is disclosed in the run 
 - **This repo** — the DLQ invariant (`3078960`), the KV-TTL wording, and the replay-window
   correction (`a4e1b2f`, `ad6b642`).
 
-## Replay trial — inconclusive (tooling error, shape now corrected)
+## Replay trial — result
 
-The first run never attached the trigger: `PUT …/schedules` with `{ schedules: [{ cron }] }` returns
-HTTP 400 `Could not parse request body`. **The correct body is a bare array** — `[{ cron }]` — which a
-follow-up probe confirmed (`200`, and the trigger then appears in `GET …/schedules`). The trial's
-`-1792788717 s` "window" is the artefact of `last` staying `0`; it is **not** evidence about the
-replay.
+Controlled attach/remove driven by the **raw Cloudflare API** (alchemy not in the loop):
 
-So the replay's owning layer is **not yet attributed by a controlled trial** (the raw-API differential
-has not run). What still stands is the observation and the detector: `* * * * *` was delivered at
-19:10 and 19:54 on the current version while `GET …/schedules` listed only `0 3 * * *`, and
-`cron-health` catches that in production (exit 1). A corrected trial (bare-array body) is the next
-step.
+- attach `* * * * *` at 21:00:16Z → **first delivery at 21:06:20Z** (0 fires for five minutes, then 2),
+  matching the documented 6–11 min lag for a freshly attached trigger;
+- remove at 21:06:20Z (restore `0 3 * * *`) → the scheduler kept delivering `* * * * *`
+  **once a minute for ~6 minutes** (21:07:01Z … 21:12:01Z), then stopped.
+
+**Owner: Cloudflare.** The trigger was attached and removed through the platform API, so alchemy is
+exonerated — the retired expression is replayed by the scheduler itself.
+
+**Correction to the earlier interim note (`a4e1b2f` / `ad6b642`).** The window here is **~6 minutes**,
+*within* the ~16 minutes `CRON-FINDINGS.md` documents — so "the replay outlives the documented window
+by an order of magnitude" is **not** supported by this controlled trial. The production fires at
+19:10Z and 19:54Z are n = 1 telemetry samples hours apart; they stay an **open anomaly**, not a bound.
+
+**One run is not a distribution.** This bounds the cadence for this attempt; N trials would give a
+half-life.
