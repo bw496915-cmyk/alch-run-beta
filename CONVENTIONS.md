@@ -38,6 +38,29 @@ Effect-native equivalents (`Workers.cron` + `CronEventSourceLive`, `consumeQueue
 `KV.ReadWriteNamespace`, `Queues.WriteQueue`, `HttpServerResponse`) are equally canonical
 **when the Worker is Effect-native**. Choosing them is a style decision, not a compliance one.
 
+### Provenance and scope of this policy
+
+The same *verify-the-effect* standard appears upstream in Alchemy's own contributor skill
+[`alchemy-provider`](https://github.com/alchemy-run/alchemy/pull/1903) (added 2026-10-22):
+"The live API is the only authority", "coverage is 1:1 with the API, operation by operation",
+"a service with resources but no bindings is half done", "cost is not a scoping reason".
+
+**Our policy is narrower than that skill, deliberately: consume, don't build.** The 1:1
+operation-coverage mandate and the "cost is not a scoping reason" rule apply to *provider
+authors* implementing hundreds of resources against a live API. They do not apply to consumer
+code like this repo, which should use a small, documented slice of the platform correctly. Cite
+that skill for the shared principle (trust the effect over the claim), never for a coverage
+target; applying its mandate here would mean implementing resources nobody asked for.
+
+### Upstream workarounds in this repo, with expiry conditions
+
+A workaround that outlives its cause quietly becomes a design choice, so each one names the
+condition under which it should be reverted.
+
+| Workaround | Upstream issue | Expires when |
+| --- | --- | --- |
+| `alchemy.run.ts` does **not** surface `versionId` / `deploymentId` in the stack outputs | [#2235](https://github.com/alchemy-run/alchemy/issues/2235) "Full Worker deployments return no versionId or deploymentId" (filed 2026-10-13 against `alchemy@2.0.0-beta.83`, now **closed**) | the release carrying the fix is pinned — re-add both outputs to the stack's return value and assert they are defined |
+
 ---
 
 ## Deny-list — hand-rolls, with the canonical replacement

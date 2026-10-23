@@ -1,5 +1,13 @@
 # Migrating this repo to `alchemy@2.0.0-beta.84`
 
+> **Provenance note (added 2026-10-23, after reading the source changelog).** This filename is
+> historical and now slightly wrong. It documents *two* things with different origins: the
+> **Durable Object `exports` door**, which opened in **beta.82 (#2135)** — two releases before
+> this file's name — and the **package split**, which is beta.84. The pre-correction version of
+> this file attributed the door to beta.84, which is exactly the provenance drift that produced
+> the wrong pin floor. Read §"One-way door" for the corrected version; the filename is kept so
+> existing references (README, REVIEW, FAILURES) still resolve.
+
 **Status: not runnable yet.** Checked 2026-10-23, five independent signals:
 
 > The release post is served from the **preview host** `main.alchemy.run`, not the production
@@ -137,11 +145,13 @@ rewrites that one command. Nothing here wires either, which is why the upgrade i
 do not "fix" a beta.83 project by writing the beta.84 form into it; it fails as an unknown
 command.
 
-### One-way door: Durable Object deploy flow
+### One-way door: Durable Object deploy flow — **opened in beta.82 (#2135)**
 
-**This repo is already through it.** Beta.83 does *not* use the legacy `migrations` flow for
-account-level scripts: it re-uploads Cloudflare's declarative `exports` map on every deploy.
-Verified on the live script, not inferred from the source:
+**This repo is already through it, and it closed before our pin.** The upstream changelog files
+the change under v2.0.0-beta.82: *"Deploy Durable Objects with declarative exports (#2135)"*. So
+beta.83 does *not* use the legacy `migrations` flow for account-level scripts — it re-uploads
+Cloudflare's declarative `exports` map on every deploy. Verified on the live script, not
+inferred:
 
 ```
 GET /accounts/<acct>/workers/scripts/<name>/versions/<id>
@@ -151,11 +161,23 @@ GET /accounts/<acct>/workers/scripts/<name>/versions/<id>
 The same map is present on both live versions (including the cron-only redeploy), and the
 `new_sqlite_classes: ["Counter"]` line in the *first* deploy log is the older bookkeeping, not
 the deployment mechanism. Cloudflare does not let a Worker return to the `migrations` flow once
-it has deployed with `exports`, so the one-way door applies **today**, not at beta.84.
+it has deployed with `exports`.
 
-Practical rule: do not roll this stage back to an Alchemy release that predates the `exports`
-flow — its first redeploy would fail. Rolling back *within* the exports era (beta.83 → beta.83)
-is fine.
+**The real pin floor is therefore `alchemy@2.0.0-beta.82`, not beta.84** — anywhere the stack
+deploys (laptops, CI, preview jobs), and it must be in place *before* the next deploy. Rolling
+back to a pre-beta.82 release would fail on its first redeploy; rolling back within the exports
+era (beta.83 → beta.83) is fine.
+
+Two operational rules that come with it, the second of which the beta.84 notes describe against
+*its* upgrade path but which applies to any export-era upgrade:
+
+- **Removing a Durable Object binding no longer deletes its namespace** while the class is still
+  exported. To delete the namespace, remove the class from the code (our `destroy` removes the
+  whole Worker, which does delete it — deleting only the binding would not).
+- **The first deploy after an upgrade must go out at 100% traffic.** Under gradual deployment,
+  remove `version.traffic` for that one deploy; otherwise it fails with
+  `WorkerVersionConfigError`. Previews still use `migrations`, so a preview Worker is not a
+  probe for this behaviour.
 
 ### Also available on beta.83 and currently unused
 
