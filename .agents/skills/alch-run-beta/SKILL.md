@@ -29,7 +29,7 @@ on the new pin must go out at **100% traffic** or it fails with `WorkerVersionCo
 
 Async-Worker style is the allow-listed shape. Do **not** hand-roll what the platform provides:
 
-- no hand-written binding types (`…Like` interfaces) — `env` is `Cloudflare.InferEnv<typeof bindings>`;
+- no hand-written binding types (`…Like` interfaces) — `env` is `Cloudflare.InferEnv<typeof Api>`;
 - `Response.json` over `new Response(JSON.stringify(...))`; the one `new Response(object.body, …)`
   streams an R2 object on purpose;
 - typed DO RPC (`getByName(...).increment()`), never a `fetch` router on the DO;

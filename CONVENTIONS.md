@@ -146,12 +146,15 @@ Measured after the refactor (baseline in brackets):
 | handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: ApiEnv\)' src/` | **0** (was 2) — both take `ctx: ExecutionContext` |
 | bash wrapper | `test -e scripts/alch.sh` | **gone** — the CLI is driven from `package.json` scripts, and `.github/workflows/ci.yml` calls `alchemy plan` directly |
 
-**One deviation remains, and it is forced by the compiler:** `ApiEnv` is
-`Cloudflare.InferEnv<typeof bindings>` rather than `InferEnv<typeof Api>`. Applying the helper
-to the Worker hits TS2589 ("type instantiation is excessively deep") the moment a Durable
-Object binding is present, because `DurableObjectLike`'s default `Shape = any` sends the mapped
-type recursive. Same helper, narrower input, identical result — recorded here so nobody
-"fixes" it back.
+**The TS2589 deviation is gone (re-checked 2026-10-23).** `ApiEnv` was
+`Cloudflare.InferEnv<typeof bindings>` because applying the helper to the Worker was recorded as
+hitting TS2589 ("type instantiation is excessively deep") once a Durable Object binding was
+present, `DurableObjectLike`'s default `Shape = any` sending the mapped type recursive. Tested
+against the canonical async example (`examples/cloudflare-worker-async`, which types
+`InferEnv<typeof Worker>`): the Worker form now compiles clean, and `test/policy.test.ts` layer 3
+still proves every member is the real platform type and not `any`. The file is back to
+`InferEnv<typeof Api>`, and the policy test pins *that* — so a diff restoring the bindings form
+fails there instead of shipping.
 
 ## Refactor backlog
 

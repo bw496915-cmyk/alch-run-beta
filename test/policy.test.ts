@@ -160,16 +160,15 @@ describe("policy: exact Alchemy shape only", () => {
     expect(readFileSync("alchemy.run.ts", "utf8")).toContain("DurableObject<Counter>(");
   });
 
-  it("types env from the bindings, not from a local interface", () => {
+  it("types env from the Worker, not from a local interface", () => {
     const stack = readFileSync("alchemy.run.ts", "utf8");
-    expect(stack).toContain("Cloudflare.InferEnv<typeof bindings>");
-    // Applying InferEnv to the Worker itself hits TS2589 once a DO binding is
-    // present (the DurableObjectLike default `Shape = any` recurses). That
-    // narrower input is the documented workaround (CONVENTIONS.md §Gates), so a
-    // diff "restoring" the Worker form fails here instead of shipping. Comments
-    // are stripped first: the file *explains* the workaround in prose, and that
-    // prose must not count as the code.
-    expect(codeOnly(stack)).not.toMatch(/InferEnv<typeof (Api|worker)>/);
+    expect(stack).toContain("Cloudflare.InferEnv<typeof Api>");
+    // The bindings-object form is gone: it was a TS2589 workaround, and the
+    // canonical async example types `InferEnv<typeof Worker>`
+    // (examples/cloudflare-worker-async). Re-verified 2026-10-23 — the Worker
+    // form compiles clean, and layer 3 above still proves the members are the
+    // real platform types, so a diff restoring the workaround fails here.
+    expect(codeOnly(stack)).not.toMatch(/InferEnv<typeof bindings>/);
 
     const worker = readFileSync("src/Api.ts", "utf8");
     expect(worker).toContain('import type { ApiEnv } from "../alchemy.run.ts"');

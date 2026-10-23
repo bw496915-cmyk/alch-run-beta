@@ -48,12 +48,14 @@ export const Api = Cloudflare.Worker("Api", {
  * `env` as the runtime delivers it: real `R2Bucket`, `D1Database`, `KVNamespace`,
  * `Queue`, `DurableObjectNamespace`.
  *
- * Applied to the bindings object rather than to the Worker: `InferEnv<typeof Api>`
- * hits TS2589 ("type instantiation is excessively deep") as soon as a Durable
- * Object binding is present — the `DurableObjectLike` default `Shape = any` sends
- * the mapped type recursive. Same helper, narrower input, identical result.
+ * Applied to the Worker — the shape the canonical async example uses
+ * (`examples/cloudflare-worker-async`: `InferEnv<typeof Worker>`). An earlier
+ * revision applied it to the `bindings` object, recorded as a TS2589 workaround;
+ * that is no longer needed (re-checked 2026-10-23 — the Worker form compiles
+ * clean, and `test/policy.test.ts` layer 3 still proves every member is the real
+ * platform type, not `any`). See `CONVENTIONS.md`.
  */
-export type ApiEnv = Cloudflare.InferEnv<typeof bindings>;
+export type ApiEnv = Cloudflare.InferEnv<typeof Api>;
 
 export default Alchemy.Stack(
   "AlchRunBeta",
