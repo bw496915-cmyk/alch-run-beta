@@ -27,6 +27,10 @@ actionlint .github/workflows/*.yml
 `test/manifest.test.ts` keeps the suite set exact and a test-count floor (74): adding a suite or
 tests is a visible edit there.
 
+A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage,
+drives the live Worker, and destroys it. It needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`)
+and is deliberately outside `test/` so the offline gate stays offline.
+
 ## Ground rules
 
 - Use the pinned framework's documented shapes; a hand-rolled substitute is denied —

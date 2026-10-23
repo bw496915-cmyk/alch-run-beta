@@ -1,11 +1,21 @@
+import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as RemovalPolicy from "alchemy/RemovalPolicy";
+import * as Effect from "effect/Effect";
 
 /**
  * One R2 bucket, nothing else. Kept in its own module so the beta.84 provider
  * split is a one-line import change here rather than a change at every use site.
  *
- * `RemovalPolicy.retain()` keeps the bucket when a rename or `destroy` would
- * otherwise delete it (REVIEW §4 #2) — the object bodies are the user's data.
+ * Retention is **conditional** (the documented `retain(<bool>)` form): the
+ * object bodies are the user's data, so a real stage keeps the bucket across a
+ * rename or `destroy`, while the `test_*` stages the `e2e/` suite uses are torn
+ * down — see `Db.ts` and REVIEW §4 #2.
  */
-export const Photos = Cloudflare.R2.Bucket("Photos").pipe(RemovalPolicy.retain());
+export const Photos = Effect.gen(function* () {
+  const { stage } = yield* Alchemy.Stack;
+
+  return yield* Cloudflare.R2.Bucket("Photos").pipe(
+    RemovalPolicy.retain(!stage.startsWith("test_")),
+  );
+});

@@ -25,9 +25,10 @@ src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Co
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
 test/                     eight suites: api, cron-health, docs, flags, manifest, policy, preflight, queue-health
+e2e/stack.test.ts         deployed-stack suite: deploys, drives the live Worker, destroys (pnpm test:e2e)
 scripts/preflight.ts      session preflight: probes scratch space, reports degraded
 stacks/github.ts          CI credentials as code: mints a scoped token, writes repo secrets
-vitest.config.ts          pins the suite to test/**/*.test.ts
+vitest.config.ts          pins the offline suite to test/**/*.test.ts (vitest.e2e.config.ts covers e2e/)
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
 CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gates
 MIGRATION-beta84.md       the diff this tree needs when beta.84 publishes
@@ -128,6 +129,7 @@ fresh state would try to recreate resources that already exist.
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
 | `pnpm test` | `vitest run` — 74 offline tests in eight suites, no account, no network |
+| `pnpm test:e2e` | The deployed-stack suite (`e2e/stack.test.ts`): deploys a `test_$USER` stage, drives the live Worker over HTTP, destroys. Needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`) — [REVIEW §4 #7](./REVIEW-2026-10-23.md) |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -182,6 +184,14 @@ Four defects and one CI blocker the suite found are **fixed**, not pinned:
 | `DELETE` reported statement success for an absent key | affected-row count |
 | unparseable KV value 500'd the index | treated as a cache miss |
 | `onlyBuiltDependencies` is dead config on pnpm 11 → fresh install exits 1 | `allowBuilds: { workerd: true }` |
+
+Beyond the offline suite, **`pnpm test:e2e`** runs `e2e/stack.test.ts` — the one layer the fakes
+cannot reach. It uses `alchemy/Test/Vitest` (`Test.make`) to deploy this Stack to an isolated
+`test_$USER` stage, drives `/health` and both sides of the admin gate over the live URL
+(`getWhenReady` rides out the `workers.dev` cold-start window), and destroys. It lives outside
+`test/` so the offline gate and `test/manifest.test.ts` stay exactly as they are, and it needs a
+real account. `Db`/`Photos` retain only on a non-`test_` stage, so that suite's `destroy` leaves
+nothing behind.
 
 ## CI
 
@@ -269,6 +279,7 @@ this tree avoids importing those types (it calls `Alchemy.localState()`).
 | `effect` / `@effect/platform-node` | `4.0.6` |
 | `@cloudflare/workers-types` | `5.20261022.1` (dev) |
 | `typescript` / `vitest` | `5.9.3` / `5.0.5` (dev) |
+| `@effect/vitest` | `4.0.6` (dev) — the `e2e/` harness |
 | `@types/node` | `24.19.2` |
 | `workerd` (transitive) | `1.20261002.1` |
 

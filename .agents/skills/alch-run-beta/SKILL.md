@@ -49,6 +49,9 @@ actionlint .github/workflows/*.yml        # workflow lint
 pnpm cron-health                          # delivered-vs-configured cron (needs a Cloudflare token)
 ```
 
+A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage
+and destroys it — it needs an account, so it is not part of the offline gate.
+
 `test/manifest.test.ts` holds a **test-count floor** (currently 74) and the exact suite set —
 adding tests means raising `MIN_TESTS` in the same diff; removing is the review gate.
 

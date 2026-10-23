@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
     "dev": "alchemy dev",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261022.1",
+    "@effect/vitest": "4.0.6",
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"
