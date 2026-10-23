@@ -1,6 +1,12 @@
 # Migrating this repo to `alchemy@2.0.0-beta.84`
 
-**Status: not runnable yet.** Checked 2026-10-23, four independent signals:
+**Status: not runnable yet.** Checked 2026-10-23, five independent signals:
+
+> The release post is served from the **preview host** `main.alchemy.run`, not the production
+> domain: `https://alchemy.run/blog/2026-10-22-beta-84/` returns **404**, the blog index and
+> RSS feed stop at beta.83, and `https://main.alchemy.run/blog/2026-10-22-beta-84/` returns
+> **200**. Any citation of this release should link the `main.` URL or readers will land on a
+> 404.
 
 | Signal | Finding |
 | --- | --- |
@@ -108,7 +114,7 @@ rg -n 'from "alchemy/' alchemy.run.ts src/
 | beta.84 breaking change | Applies here? | Why |
 | --- | --- | --- |
 | Providers moved into `@alchemy.run/*` packages | **Yes** | The 3 files above; every provider import is concentrated in two of them |
-| State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | This repo uses `Alchemy.localState()`, and no bootstrap/prisma command is wired into any script. It becomes relevant only if you switch to `Cloudflare.state()` — see the version table below before writing either command |
+| State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | `alchemy state` itself already exists on beta.83 (`list`/`read`/`delete`, plus `--backend`); what beta.84 adds is a `bootstrap` subcommand under it. This repo wires neither, so the change is inert — see the version table below before writing either command |
 | **Effect bumped to `^4.0.5`** (#2372) | No | Already resolved: `effect@4.0.6` and `@effect/platform-node@4.0.6` satisfy it, and beta.83 has been run on 4.0.6 (install, typecheck, live dev loop) |
 | `AWS.Lambda.isBindingHost` removed; AWS hosts now get IAM grants | No | No AWS resources in this stack |
 | Distilled error classes are no longer Effect Schemas | No | No distilled SDK error handling in this code |
@@ -130,6 +136,19 @@ So on beta.83, moving this repo from `Alchemy.localState()` to a shared state st
 rewrites that one command. Nothing here wires either, which is why the upgrade is inert — but
 do not "fix" a beta.83 project by writing the beta.84 form into it; it fails as an unknown
 command.
+
+### One-way door: Durable Object deploy flow
+
+Independent of the package split, beta.84-era Alchemy deploys Durable Object classes through
+Cloudflare's declarative `exports` map. Cloudflare does not let a Worker go back to the older
+`migrations` flow once deployed that way — so a Worker whose first deploy used `exports`
+cannot be redeployed by an older Alchemy. Beta.83 hosted DOs go through the legacy
+`migrations` / `new_sqlite_classes` path (`WorkerProvider.ts`), which is what created the
+`Counter` namespace here.
+
+Practical rule: **deploy the DO once on one side of the boundary and stay there.** Decide
+whether `Counter` keeps living on beta.83 or moves to beta.84 before deploying again, and do
+not roll back across that line afterwards.
 
 ### Also available on beta.83 and currently unused
 
@@ -157,14 +176,16 @@ they are listed so the next reader does not have to re-derive them:
 `Alchemy.localState()` and `inMemoryState()` are unaffected: the post states that
 `alchemy` keeps the engine, the CLI, and the local and in-memory state stores. Only cloud
 state stores (`Cloudflare.state()`, `AWS.state()`, the new `GCP.state()`) move into their
-provider packages — and both grow a `name` option for named stores:
+provider packages — and beta.84 grows a named-store option. On beta.83 `Cloudflare.state()`
+takes **no arguments**; the named form is beta.84-era, and the live docs name the field
+`workerName`, not `name`:
 
 ```ts
-state: Cloudflare.state({ name: "team-a" }),
+state: Cloudflare.state({ workerName: "alchemy-state-store-team-a" }),
 ```
 
 ```bash
-alchemy state bootstrap --backend cloudflare --name team-a
+alchemy state bootstrap --backend cloudflare
 ```
 
 Optional at beta.84, not needed for this stack: `Cloudflare.Hyperdrive.lookup`,
