@@ -76,7 +76,7 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | Resource | Physical name | What proves it |
 | --- | --- | --- |
 | Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | `/health` answers; `/stats` + `/audit` are admin-gated (401 without the token) |
-| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | `GET /photos/<key>` serves a body a `PUT` wrote |
+| R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | `GET /photos/:key` serves a body a `PUT` wrote |
 | D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | both migrations applied; `audit_events` holds consumer-written rows |
 | KV namespace | `2430e2e45a8544568114b1c098146c42` | second `GET /photos` returns `x-cache: hit` |
 | Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` | an audit row appears that no request wrote |
@@ -218,9 +218,9 @@ not a quiet pass.
 | Check | Local | Live |
 | --- | --- | --- |
 | `GET /health` | 200 | 200 |
-| `PUT /photos/<key>` writes R2 + D1 + KV bust + queue event | 201 | 201 |
+| `PUT /photos/:key` writes R2 + D1 + KV bust + queue event | 201 | 201 |
 | `GET /photos` miss → `source: d1`, then hit → `source: kv` | ✅ | ✅ |
-| `GET /photos/<key>` body from R2, content-type from D1 | ✅ | ✅ |
+| `GET /photos/:key` body from R2, content-type from D1 | ✅ | ✅ |
 | `DELETE` → object + row gone, cache busted, then 404 | — | ✅ |
 | `GET /stats` → DO counter via typed RPC increments | ✅ | ✅ (8 → 9 after the RPC deploy) |
 | `PUT` of a non-ASCII body records UTF-8 bytes (`"é"` → 2) | ✅ | ✅ |
