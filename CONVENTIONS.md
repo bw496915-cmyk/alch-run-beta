@@ -51,7 +51,7 @@ Effect-native equivalents (`Workers.cron` + `CronEventSourceLive`, `consumeQueue
 | 5 | dropping the third handler argument (`fetch(request, env)`, `scheduled(controller, env)`) | take `ctx: ExecutionContext` and use `ctx.waitUntil(...)` for work that must outlive the response (our KV refill and audit writes were inline because `ctx` did not exist) | `ExecutionContext` in workers-types |
 | 6 | `try { … } catch { message.retry() }` around the whole body | let the throw surface: the platform retries the batch and the consumer's `maxRetries` applies; catch only what you can classify | `Queues/Consumer.d.ts` settings |
 | 7 | hand-written queue/DO/R2 client shapes limiting the surface (`QueueProducerLike.send` only, no `sendBatch`/`metrics`; `R2BucketLike.get` without `onlyIf`/range) | the real `Queue`/`R2Bucket`/`DurableObjectNamespace` from `InferEnv` | `InferEnv.d.ts:45` |
-| 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI | CLI page |
+| 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI. **Retained for now**: `.github/workflows/ci.yml` invokes it, so it is deleted together with that CI step, not before | CLI page |
 | 9 | `if (path === "/x" && request.method === "GET")` chains growing past ~4 routes | keep the small chain; past that, an Effect-native router (`HttpRouter` / `HttpApi`) is the documented instrument | APIs pages |
 
 ## Gates
@@ -82,5 +82,5 @@ Measured baseline before the refactor (must all reach 0):
 1. `alchemy.run.ts` — Worker at module scope + `export type WorkerEnv = Cloudflare.InferEnv<typeof Api>`.
 2. `src/Api.ts` — delete the 14 interfaces, type `env` with `WorkerEnv`, take `ctx`, `Response.json`,
    `blockConcurrencyWhile` around the DO counter, `extends DurableObject`, `getByName`.
-3. Delete `scripts/alch.sh`; move its flags into `package.json` scripts.
+3. Delete `scripts/alch.sh` **and** repoint `.github/workflows/ci.yml`'s plan step at the CLI in the same change; move its flags into `package.json` scripts.
 4. Encode the gates above as a test so the policy is enforced, not just documented.
