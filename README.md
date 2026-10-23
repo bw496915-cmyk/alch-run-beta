@@ -36,8 +36,8 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | Route | Services | Behaviour |
 | --- | --- | --- |
 | `GET /health` | — | `{ ok, time }` |
-| `GET /stats` | DO + D1 | Increments the DO counter; returns it with the audit-row count |
-| `GET /audit` | D1 | Rows written by the `queue()` handler |
+| `GET /stats` | DO + D1 | **Admin-gated.** DO counter + audit-row count, each read independently (`degraded: true` if one fails) |
+| `GET /audit` | D1 | **Admin-gated.** Rows written by the `queue()` handler |
 | `GET /photos` | KV → D1 | Cached index; `x-cache: hit` from KV, `miss` from D1 + refill |
 | `GET /photos/<key>` | R2 + D1 | Body from R2, content-type/created-at from the D1 row |
 | `PUT /photos/<key>` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
@@ -55,10 +55,17 @@ inside `ctx.storage.transaction`, so concurrent `/stats` calls cannot lose one.
 
 ```bash
 URL=https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev
-curl $URL/stats                                  # DO counter increments per call
+AUTH="Authorization: Bearer $ADMIN_TOKEN"        # /stats and /audit are admin-gated
+curl -H "$AUTH" $URL/stats                       # DO counter increments per call
 curl -X PUT --data-binary "hi" $URL/photos/hi.txt
-sleep 10 && curl $URL/audit                      # the queued event, written by the consumer
+sleep 10 && curl -H "$AUTH" $URL/audit           # the queued event, written by the consumer
 ```
+
+A failing dependency **degrades** rather than 500s: `/stats` returns the half that worked
+with `degraded: true`, and any unexpected throw becomes a named `503`. Audit events that
+exhaust their retries land in the `AuditDeadLetter` queue instead of vanishing. `ADMIN_TOKEN`
+is a Worker secret (`Config.Redacted`); it is required at plan/deploy time, so set
+`$ADMIN_TOKEN` locally and as a repo secret in CI.
 
 ## Live deployment
 

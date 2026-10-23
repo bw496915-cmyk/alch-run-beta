@@ -1,5 +1,6 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
 import type { Counter } from "./src/Api.ts";
@@ -28,6 +29,10 @@ const bindings = {
   EVENTS: Events,
   // Durable Object namespace; the class is exported by src/Api.ts.
   COUNTER: Cloudflare.DurableObject<Counter>("Counter", { className: "Counter" }),
+  // Worker secret for the admin endpoints (REVIEW §4 #5): a `Config.Redacted`
+  // resolves at deploy time and binds as `secret_text`. Sourced from
+  // `$ADMIN_TOKEN` locally and from the repo secret in CI.
+  ADMIN_TOKEN: Config.Redacted("ADMIN_TOKEN"),
 };
 
 export const Api = Cloudflare.Worker("Api", {
@@ -64,11 +69,15 @@ export default Alchemy.Stack(
     const db = yield* Db;
     const cache = yield* Cache;
     const events = yield* Events;
+    // Failed audit messages land here after `maxRetries` instead of vanishing
+    // (REVIEW §4 #3).
+    const deadLetter = yield* Cloudflare.Queues.Queue("AuditDeadLetter");
 
     // Attach the Worker's queue() handler to the queue as its consumer.
     const consumer = yield* Cloudflare.Queues.Consumer("ApiAuditConsumer", {
       queueId: events.queueId,
       scriptName: worker.workerName,
+      deadLetterQueue: deadLetter.queueName,
       settings: { batchSize: 10, maxRetries: 3, maxWaitTimeMs: 5_000 },
     });
 
@@ -78,6 +87,7 @@ export default Alchemy.Stack(
       databaseName: db.databaseName,
       kvNamespaceId: cache.namespaceId,
       queueName: events.queueName,
+      deadLetterQueueName: deadLetter.queueName,
       consumerId: consumer.consumerId,
       crons: worker.crons,
       // `worker.versionId` / `worker.deploymentId` exist on the type but stay

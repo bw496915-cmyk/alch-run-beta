@@ -142,12 +142,32 @@ export class Counter extends DurableObject<ApiEnv> {
   }
 }
 
+/**
+ * Guard for the ops endpoints. `ADMIN_TOKEN` is a Worker secret
+ * (`Config.Redacted` in `alchemy.run.ts` → `secret_text`). With none configured
+ * the endpoint is refused rather than silently opened (REVIEW §4 #5).
+ */
+const requireAdmin = (request: Request, env: ApiEnv): Response | null => {
+  const token = env.ADMIN_TOKEN;
+  if (typeof token !== "string" || token.length === 0) {
+    return json({ error: "admin endpoints are not configured (ADMIN_TOKEN unset)" }, 503);
+  }
+  const presented =
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    request.headers.get("x-admin-token") ??
+    "";
+  return presented === token ? null : json({ error: "unauthorized" }, 401);
+};
+
 /* ------------------------------------------------------------------ */
 /* Worker                                                              */
 /* ------------------------------------------------------------------ */
 
-export default {
-  async fetch(request: Request, env: ApiEnv, ctx: ExecutionContext): Promise<Response> {
+/**
+ * Route table. `fetch` wraps this so an unexpected dependency failure degrades
+ * to a named 503 instead of an opaque 500 (REVIEW §4 #4).
+ */
+const route = async (request: Request, env: ApiEnv): Promise<Response> => {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
@@ -155,20 +175,31 @@ export default {
       return json({ ok: true, time: new Date().toISOString() });
     }
 
-    // GET /stats -> Durable Object counters + audit count (three services)
+    // GET /stats -> Durable Object counters + audit count (three services).
+    // Admin-gated; each dependency is read independently so one failing does not
+    // take the other (REVIEW §4 #4/#5).
     if (path === "/stats" && request.method === "GET") {
-      const requests = await counterStub(env).increment();
-      const audit = await env.DB.prepare(
-        "SELECT COUNT(*) AS n FROM audit_events",
-      ).first<{ n: number }>();
+      const denied = requireAdmin(request, env);
+      if (denied) return denied;
+      const [requests, audit] = await Promise.all([
+        counterStub(env)
+          .increment()
+          .catch(() => null),
+        env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events")
+          .first<{ n: number }>()
+          .catch(() => null),
+      ]);
       return json({
         durableObject: { name: COUNTER_NAME, requests },
-        d1: { auditEvents: audit?.n ?? 0 },
+        d1: { auditEvents: audit?.n ?? null },
+        degraded: requests === null || audit === null,
       });
     }
 
-    // GET /audit -> rows written by the queue() handler, newest first
+    // GET /audit -> rows written by the queue() handler, newest first (admin-gated).
     if (path === "/audit" && request.method === "GET") {
+      const denied = requireAdmin(request, env);
+      if (denied) return denied;
       const { results } = await env.DB.prepare(
         "SELECT id, type, detail, at FROM audit_events ORDER BY at DESC LIMIT 25",
       ).all<AuditRow>();
@@ -268,6 +299,25 @@ export default {
     }
 
     return json({ error: "not found", method: request.method, path }, 404);
+};
+
+export default {
+  /**
+   * Degrade, don't 500 (REVIEW §4 #4): an unexpected dependency failure names
+   * itself and returns 503, so a client can tell "try again" from "bad request".
+   */
+  async fetch(request: Request, env: ApiEnv, ctx: ExecutionContext): Promise<Response> {
+    try {
+      return await route(request, env);
+    } catch (error) {
+      return json(
+        {
+          error: "dependency unavailable",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        503,
+      );
+    }
   },
 
   /** Queue consumer: drains the audit pipeline into D1. */

@@ -121,6 +121,8 @@ class FakeD1 {
   readonly statements: string[] = [];
   /** How many times the index-listing query reached "D1". */
   listCalls = 0;
+  /** When true, every SELECT throws like a locked/unavailable D1. */
+  failQueries = false;
   /** When true, `INSERT INTO audit_events` throws like a locked/unavailable D1. */
   failAuditInsert = false;
 
@@ -131,6 +133,9 @@ class FakeD1 {
   }
 
   selectRows(sql: string, values: ReadonlyArray<string | number>): ReadonlyArray<unknown> {
+    if (this.failQueries) {
+      throw new Error("D1_ERROR: simulated database unavailable");
+    }
     if (sql === SQL.listPhotos) {
       this.listCalls += 1;
       return [...this.photos.values()]
@@ -398,6 +403,8 @@ interface Harness {
   counter: FakeDoNamespace;
 }
 
+const ADMIN_TOKEN = "test-admin-token";
+
 const createHarness = (): Harness => {
   const r2 = new FakeR2();
   const d1 = new FakeD1();
@@ -410,6 +417,7 @@ const createHarness = (): Harness => {
     CACHE: kv,
     COUNTER: counter,
     EVENTS: queue,
+    ADMIN_TOKEN,
   } as unknown as ApiEnv;
   counter.envProvider = () => env;
   return { env, r2, d1, kv, queue, counter };
@@ -419,6 +427,10 @@ let harness: Harness = createHarness();
 
 const fetchWorker = (path: string, init?: RequestInit): Promise<Response> =>
   Api.fetch(new Request(`https://api.test${path}`, init), harness.env, fakeCtx());
+
+/** The `/stats` and `/audit` ops endpoints are admin-gated (REVIEW §4 #5). */
+const fetchAdmin = (path: string): Promise<Response> =>
+  fetchWorker(path, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } });
 
 const readJson = async <T>(response: Response): Promise<T> => (await response.json()) as T;
 
@@ -765,7 +777,7 @@ describe("queue()", () => {
     const message = new FakeQueueMessage(harness.queue.sent[0]);
     await Api.queue(makeBatch(message), harness.env);
 
-    const audit = await fetchWorker("/audit");
+    const audit = await fetchAdmin("/audit");
     expect(audit.status).toBe(200);
     expect(
       await readJson<{ count: number; events: ReadonlyArray<AuditRow> }>(audit),
@@ -872,14 +884,57 @@ describe("GET /stats", () => {
     const first = await readJson<{
       durableObject: { name: string; requests: number };
       d1: { auditEvents: number };
-    }>(await fetchWorker("/stats"));
+    }>(await fetchAdmin("/stats"));
     expect(first.durableObject).toEqual({ name: "global", requests: 1 });
     expect(first.d1.auditEvents).toBe(1);
 
     const second = await readJson<{ durableObject: { requests: number } }>(
-      await fetchWorker("/stats"),
+      await fetchAdmin("/stats"),
     );
     expect(second.durableObject.requests).toBe(2);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* admin gating + degradation (REVIEW §4 #4/#5)                        */
+/* ------------------------------------------------------------------ */
+
+describe("admin gating and degradation", () => {
+  it("refuses /stats and /audit without the admin token", async () => {
+    expect((await fetchWorker("/stats")).status).toBe(401);
+    expect((await fetchWorker("/audit")).status).toBe(401);
+  });
+
+  it("refuses a wrong token", async () => {
+    const response = await fetchWorker("/stats", {
+      headers: { authorization: "Bearer nope" },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("degrades /stats to a partial answer when D1 is unavailable, instead of 500ing", async () => {
+    harness.d1.failQueries = true;
+
+    const response = await fetchAdmin("/stats");
+    const body = await readJson<{
+      durableObject: { requests: number };
+      d1: { auditEvents: number | null };
+      degraded: boolean;
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.degraded).toBe(true);
+    expect(body.d1.auditEvents).toBeNull();
+    expect(body.durableObject.requests).toBe(1);
+  });
+
+  it("returns 503, not 500, when a dependency throws inside a route", async () => {
+    harness.d1.failQueries = true;
+
+    const response = await fetchAdmin("/audit");
+
+    expect(response.status).toBe(503);
+    expect((await readJson<{ error: string }>(response)).error).toBe("dependency unavailable");
   });
 });
 

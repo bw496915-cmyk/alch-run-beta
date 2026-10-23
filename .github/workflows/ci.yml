@@ -86,6 +86,9 @@ jobs:
       # Empty when the repo has no such secret — which is how the gate below
       # detects "no credentials" without touching the value.
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # Required: `Config.Redacted("ADMIN_TOKEN")` in alchemy.run.ts fails plan
+      # without it (REVIEW §4 #5).
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
