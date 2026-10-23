@@ -2,6 +2,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
 import * as HttpBody from "effect/http/HttpBody";
+import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { expect } from "vitest";
 
@@ -93,9 +94,12 @@ test(
   "an unknown route is a 404",
   Effect.gen(function* () {
     const { url } = yield* stack;
-    const response = yield* Test.getWhenReady(`${url}/nope`);
+    // Not `getWhenReady`: it retries 404/5xx through the cold-start window, so a
+    // *deliberate* 404 would be retried away. The docs' rule — assert a status
+    // the harness considers transient with the plain client.
+    const response = yield* HttpClient.get(`${url}/nope`);
     expect(response.status).toBe(404);
   }),
 );
 
-afterAll(destroy(Stack));
+afterAll(destroy(Stack), { timeout: 300_000 });
