@@ -45,8 +45,15 @@ jobs:
 
       - name: Assert delivered cron matches configured
         if: steps.creds.outputs.proceed == 'true'
-        # The Worker name comes from .alchemy state, which is gitignored — so pass
-        # it explicitly here rather than relying on a developer's local state.
-        run: node scripts/cron-health.ts --worker "$WORKER_NAME"
+        # The Worker's physical name is engine-generated (`…-<hash>`) and lives in
+        # gitignored .alchemy state, so CI cannot derive it — set the repo variable
+        # CLOUDFLARE_WORKER_NAME (the deploy prints it). A hard-coded name would rot
+        # the moment the stage is recreated.
+        run: |
+          if [ -z "$WORKER_NAME" ]; then
+            echo "::notice::CLOUDFLARE_WORKER_NAME is not set; skipping (the deploy prints the Worker name)."
+            exit 0
+          fi
+          node scripts/cron-health.ts --worker "$WORKER_NAME"
         env:
-          WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'alchrunbeta-api-deep-pass-6cjaiopzcff6bixa' }}
+          WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
