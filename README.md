@@ -16,8 +16,9 @@ migrations/               0001_init.sql (photos), 0002_audit.sql (audit_events)
 src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Counter DO class
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
-test/                     six suites: api, cron-health, docs, manifest, policy, preflight
+test/                     seven suites: api, cron-health, docs, flags, manifest, policy, preflight
 scripts/preflight.ts      session preflight: probes scratch space, reports degraded
+stacks/github.ts          CI credentials as code: mints a scoped token, writes repo secrets
 vitest.config.ts          pins the suite to test/**/*.test.ts
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
 CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gates
@@ -107,7 +108,7 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 55 offline tests in six suites, no account, no network |
+| `pnpm test` | `vitest run` — 63 offline tests in seven suites, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -180,6 +181,18 @@ export CLOUDFLARE_API_TOKEN=…      # API token, or a `wrangler login` OAuth to
 export CLOUDFLARE_ACCOUNT_ID=7a470541a704caaf91e71efccc78fd36
 ```
 
+CI needs the same two variables. Rather than copy-paste the token into the GitHub UI, the
+Alchemy-recommended *credentials as code* flow lives in `stacks/github.ts`: it mints a scoped
+Cloudflare token and writes it, with the account id, into this repo as Actions secrets
+([CI guide](https://alchemy.run/environments/ci)). Deploy it once, from an `admin` profile —
+only that profile needs token-management rights; `default` stays narrowly scoped:
+
+```bash
+alchemy profile create admin
+alchemy profile edit --profile admin          # Cloudflare: API Token/Key, NOT OAuth
+alchemy deploy --config stacks/github.ts --profile admin
+```
+
 Two hard-won facts:
 
 - **A printed scope list is not the capability set.** `wrangler whoami` lists no R2 scope, yet
@@ -209,7 +222,7 @@ not a quiet pass.
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
-| `pnpm test` | 55/55 in six suites, offline | — |
+| `pnpm test` | 63/63 in seven suites, offline | — |
 
 Two runtime behaviours worth knowing:
 

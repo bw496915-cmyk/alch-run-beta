@@ -24,6 +24,7 @@
   },
   "include": [
     "alchemy.run.ts",
+    "stacks/**/*.ts",
     "src/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
