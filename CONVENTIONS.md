@@ -82,6 +82,13 @@ must carry a verified closure (`state_reason` plus the PR/commit) and a concrete
 | 8 | `scripts/alch.sh` — bash re-implementing CLI flags | `package.json` scripts calling the `alchemy` CLI (done, wrapper deleted with its CI step) | CLI page |
 | 9 | `if (path === "/x" && request.method === "GET")` chains growing past ~4 routes | keep the small chain; past that, an Effect-native router (`HttpRouter` / `HttpApi`) is the documented instrument | APIs pages |
 
+> **Deny-list #9, decided (2026-10-23, after the attribution audit).** This repo keeps the async
+> `if (path === …)` chain **on purpose**: the async-Worker style is the allow-listed shape, and
+> adopting `HttpRouter` / `HttpApi` would move the Worker to the Effect-native style — changing the
+> allow-list, the three policy gates, and the DO/queue wiring. The chain (~8 branches) is a recorded
+> choice, not an oversight; the router is the instrument if the API grows well past that, or if the
+> repo ever goes Effect-native. See `REVIEW-2026-10-23.md` §4.
+
 ## Gates
 
 These are enforced by `test/policy.test.ts` (part of `pnpm test`), in three layers:
