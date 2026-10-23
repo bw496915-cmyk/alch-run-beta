@@ -18,6 +18,7 @@ Worker, a clean-room `deploy`/`destroy` on a throwaway stage, the pinned package
 | `/stats` + `/audit` are admin-gated | black-box: no token → **401**, `Bearer` → **200** | ✅ |
 | The deployed bundle carries the layers | content 24,627 B contains `/photos/:key`, `degraded`, `dependency unavailable`, `ON CONFLICT(id) DO NOTHING` | ✅ |
 | `ADMIN_TOKEN` is a secret | `settings.bindings` → `ADMIN_TOKEN: "secret_text"`; bundle contains no token literal, no `cfat_`, no `sk-` | ✅ |
+| The admin token is absent from **state** | `.alchemy/state/AlchRunBeta/deep-pass/Api.json` → `props.env.ADMIN_TOKEN.__redacted__` is the exact 64-hex token (`sha256` matches `.env`) | ❌ **refuted** — the local alchemy state serialises the secret in the clear. Gitignored, but plaintext on disk (and printed by `alchemy state read`) |
 | DO export map is observable | `GET …/workers/services/{name}/environments/production` → `exports: {"Counter":{"type":"durable-object","storage":"sqlite"}}` | ✅ (see §3.1) |
 | **REVIEW §7: exports at `GET …/workers/scripts/{name}/versions/{id}`** | that version's `resources.script` keys are `["etag","handlers","named_handlers","last_deployed_from"]` — **no `exports`** | ❌ **refuted** |
 | cron `0 3 * * *` "fires" | docs: first real daily fire is `2026-10-24 03:00 UTC` | ⏳ unproven until then |

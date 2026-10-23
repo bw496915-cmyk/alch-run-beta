@@ -27,8 +27,7 @@
  * Exit codes: 0 healthy, 1 assertion failed, 2 misconfigured or unreachable.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { evaluate, readEnvelope, type Delivery } from "./cron-health-logic.ts";
 import { readFlag, readNumberFlag } from "./flags.ts";
@@ -59,11 +58,20 @@ if (!Number.isFinite(WINDOW_HOURS) || !Number.isFinite(MAX_AGE_HOURS)) {
 const workerName = (): string => {
   const override = readFlag(argv, "worker");
   if (override) return override;
-  const file = join(".alchemy", "state", "AlchRunBeta", STAGE, "Api.json");
+  // Let alchemy resolve the state path instead of hand-rolling the local
+  // `.alchemy/state/<stack>/<stage>/<resource>.json` layout — `alchemy state read`
+  // serves a remote state store too, so this keeps working if localState is swapped.
+  const read = spawnSync("./node_modules/.bin/alchemy", ["state", "read", `AlchRunBeta/${STAGE}/Api`], {
+    encoding: "utf8",
+  });
   try {
-    return JSON.parse(readFileSync(file, "utf8")).attr.workerName as string;
-  } catch {
-    console.error(`no Worker name: pass --worker, or deploy stage "${STAGE}" first (${file})`);
+    if (read.status !== 0 || !read.stdout) throw new Error(read.stderr?.trim() || "no state");
+    return JSON.parse(read.stdout).attr.workerName as string;
+  } catch (cause) {
+    console.error(
+      `no Worker name: pass --worker, or deploy stage "${STAGE}" first ` +
+        `(${cause instanceof Error ? cause.message : String(cause)})`,
+    );
     process.exit(2);
   }
 };

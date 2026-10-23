@@ -52,7 +52,16 @@ scripts; one `curl` slipped in during a purge check and is disclosed in the run 
 - **This repo** — the DLQ invariant (`3078960`), the KV-TTL wording, and the replay-window
   correction (`a4e1b2f`, `ad6b642`).
 
-## Replay trial
+## Replay trial — inconclusive (tooling error, shape now corrected)
 
-_Running._ Attach `* * * * *` via the raw API → confirm it fires → remove → poll Workers
-Observability for how long `* * * * *` keeps arriving afterwards. Result appended when it completes.
+The first run never attached the trigger: `PUT …/schedules` with `{ schedules: [{ cron }] }` returns
+HTTP 400 `Could not parse request body`. **The correct body is a bare array** — `[{ cron }]` — which a
+follow-up probe confirmed (`200`, and the trigger then appears in `GET …/schedules`). The trial's
+`-1792788717 s` "window" is the artefact of `last` staying `0`; it is **not** evidence about the
+replay.
+
+So the replay's owning layer is **not yet attributed by a controlled trial** (the raw-API differential
+has not run). What still stands is the observation and the detector: `* * * * *` was delivered at
+19:10 and 19:54 on the current version while `GET …/schedules` listed only `0 3 * * *`, and
+`cron-health` catches that in production (exit 1). A corrected trial (bare-array body) is the next
+step.
