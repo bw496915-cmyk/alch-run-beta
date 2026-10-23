@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:dev": "vitest run test/api.test.ts --testTimeout=60000 --hookTimeout=300000",
+    "test:dev": "vitest run --config vitest.dev.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
