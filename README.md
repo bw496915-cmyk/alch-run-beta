@@ -40,9 +40,9 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `GET /stats` | DO + D1 | **Admin-gated.** DO counter + audit-row count, each read independently (`degraded: true` if one fails) |
 | `GET /audit` | D1 | **Admin-gated.** Rows written by the `queue()` handler |
 | `GET /photos` | KV → D1 | Cached index; `x-cache: hit` from KV, `miss` from D1 + refill |
-| `GET /photos/<key>` | R2 + D1 | Body from R2, content-type/created-at from the D1 row |
-| `PUT /photos/<key>` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
-| `DELETE /photos/<key>` | R2 + D1 + KV | Removes object + row, busts cache |
+| `GET /photos/:key` | R2 + D1 | Body from R2, content-type/created-at from the D1 row |
+| `PUT /photos/:key` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
+| `DELETE /photos/:key` | R2 + D1 + KV | Removes object + row, busts cache |
 
 Three handlers: `fetch` (above), `queue` (audit consumer, per-message `ack`/`retry`, attached
 by `Queues.Consumer({ queueId, scriptName: worker.workerName, deadLetterQueue })`), `scheduled`
