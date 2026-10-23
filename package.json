@@ -1,0 +1,22 @@
+{
+  "name": "alch-run-beta",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "plan": "alchemy plan",
+    "deploy": "alchemy deploy",
+    "dev": "alchemy dev",
+    "destroy": "alchemy destroy"
+  },
+  "dependencies": {
+    "alchemy": "2.0.0-beta.83",
+    "@effect/platform-node": "4.0.6",
+    "effect": "4.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}

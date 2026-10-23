@@ -1,0 +1,14 @@
+node_modules/
+.pnpm-store/
+
+# Alchemy local state (created by `alchemy plan / deploy / dev`)
+.alchemy/
+
+# Local secrets / env files
+.env
+.env.*
+!.env.example
+.dev.vars
+
+*.log
+.DS_Store
