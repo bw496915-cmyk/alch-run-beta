@@ -55,7 +55,9 @@ target; applying its mandate here would mean implementing resources nobody asked
 ### Upstream workarounds in this repo, with expiry conditions
 
 A workaround that outlives its cause quietly becomes a design choice, so each one names the
-condition under which it should be reverted.
+condition under which it should be reverted. **`test/docs.test.ts` asserts this table**: every row
+must carry a verified closure (`state_reason` plus the PR/commit) and a concrete expiry trigger
+(a release or PR number — "when the fix ships" is rejected).
 
 | Workaround | Upstream issue | Closure (verified, not assumed) | Expires when |
 | --- | --- | --- | --- |
