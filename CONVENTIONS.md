@@ -95,6 +95,13 @@ name nobody thought of". Verified by mutation: inserting `interface DatabaseShim
 `new declarations must be justified in ALLOWED_DECLARATIONS: expected [ 'DatabaseShim' ] to deeply equal []`.
 Adding it to the allow-list is the review gate — a visible diff, not a silent regression.
 
+The gate itself is guarded by **`test/manifest.test.ts`**, because a suite that enforces rules
+about documents and source enforced nothing about its *own* existence: deleting
+`test/docs.test.ts` or `test/policy.test.ts`, or deleting their `it(…)` blocks, left `pnpm test`
+green with fewer assertions. The manifest keeps the expected suite set exact and the declared test
+count at or above a floor, so either removal is a failing diff; `.github/workflows/ci.yml` asserts
+the manifest file itself exists, since a deleted manifest would simply mean one fewer suite.
+
 The shell-level greps below remain useful when reading a diff by hand:
 
 A change is rejected if any of these hits in `src/` or `alchemy.run.ts`:

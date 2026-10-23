@@ -10,6 +10,29 @@ import { describe, expect, it } from "vitest";
  * duplicate and wontfix, and only one of those lets a workaround expire. A
  * workaround table whose expiry cannot be trusted is worse than no table: it
  * reads as scheduled maintenance while being permanently stale.
+ *
+ * What this file cannot see — stated, not implied, in the same form as the
+ * allow-list's mutation result in `test/policy.test.ts`:
+ *
+ *   - **Form, not truth.** A fabricated issue number with a plausible
+ *     `state_reason` and a PR reference passes every pattern below. Whether the
+ *     PR merged, or the release really lists the fix, needs the changelog or a
+ *     human.
+ *   - **"Readable length" catches terse, not verbose-vague.** The row checks a
+ *     `beta.N`/`#N` reference plus `expires.length >= 60`, so a long sentence
+ *     that commits to nothing passes. Mutation transcript — executed
+ *     2026-10-23, not recalled: the workaround row's expiry was replaced with a
+ *     265-character sentence naming #2241 while promising only that the row
+ *     "will be revisited and a decision will be made", and
+ *
+ *         pnpm test
+ *         Test Files  6 passed (6)
+ *              Tests  54 passed (54)
+ *
+ *     stayed green. It was reverted with `git checkout -- CONVENTIONS.md` —
+ *     never a `/tmp` copy (rule 11's corollary). The limit is real, and it is
+ *     recorded next to the test so a green run is not mistaken for a verified
+ *     expiry.
  */
 
 const DOCS = readdirSync(".", { withFileTypes: true })
