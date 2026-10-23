@@ -20,12 +20,15 @@ be our own measurement window.
 | 9 | **Two agents committed to one branch; a `git reset` discarded a commit** | `a2dad44` (the wrapper deletion) vanished from `main` twenty seconds after it landed: another agent ran `git reset 8b7b63c` while recovering its own amended commit, and its replacement commit was built on the reset base. One commit in the race also captured a half-written `package.json` | parallel agents sharing a branch, and `git reset` is not additive — a commit made in the same second as another agent's is still just a ref move away from disappearing | recovered: the object survived, worktree still held the changes, re-committed and verified by inspecting `HEAD` contents (`git show HEAD:package.json`) rather than trusting `git log` | this row, and the rule below |
 | 10 | `wrangler tail` prints nothing through a pipe | `… \| grep <pattern>` produced nothing, including for requests known to arrive | `tail` does not flush per line to a pipe; the stream never ends, so the filter sees nothing | stream to a file for a bounded window | working practice, recorded here |
 
-**Residual anomaly, still open (platform-side).** `deep-pass` delivery stopped after 16:06:52 and
-stayed silent ~16 minutes, then produced four more fires carrying the **retired** `* * * * *`
-expression right after a redeploy, then went quiet at 16:28:55 — while an isolated probe fired ten
-consecutive minutes without stopping. That looks like queued or stale scheduler delivery in this
-account, not anything in the repo. The next real signal is the committed `0 3 * * *` fire at
-2026-10-24 03:00 UTC.
+**Residual anomaly — now asserted instead of described.** `deep-pass` delivery stopped after
+16:06:52, stayed silent ~16 minutes, then produced four more fires carrying the **retired**
+`* * * * *` expression after a redeploy (across two script versions, as the check later showed),
+then went quiet at 16:28:55 — while an isolated probe fired ten consecutive minutes without
+stopping. That is stale scheduler delivery in this account, not anything in the repo.
+
+It is no longer a paragraph: `pnpm cron-health` compares the platform's *delivered* expression
+against the *configured* schedule, is unit-tested (8 cases), and runs every 6 hours in CI. Its
+blind spots are listed in `REVIEW-2026-10-23.md` §8 rather than left to the reader.
 
 **Why 8 was not a shape bug.** The first hypothesis was that `crons: [...]` + a plain
 `scheduled` export is undocumented for async Workers. The [`Worker.d.ts:704-716`](

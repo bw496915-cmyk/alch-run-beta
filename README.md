@@ -76,7 +76,8 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 Three live caveats, none of them green:
 
 - the cron's *daily* schedule has not been observed: the 16 rows came from a temporary
-  `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC;
+  `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC — and
+  `pnpm cron-health` is what will confirm it (it currently exits 1, correctly);
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
   [FAILURES.md](./FAILURES.md) #7;
@@ -109,6 +110,7 @@ fresh state would try to recreate resources that already exist.
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
+| `pnpm cron-health` | Asserts the cron expression Cloudflare **delivers** matches the one configured — the one external mechanism no other check can see ([§8](./REVIEW-2026-10-23.md)) |
 
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for
 the subcommand in hand. `$ALCHEMY_STAGE` selects the stage; `dev` defaults to `dev_${USER}`.

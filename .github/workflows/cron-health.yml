@@ -1,0 +1,52 @@
+name: cron health
+
+# The scheduler is the one mechanism here that is external and invisible from
+
+# inside the Worker: on 2026-10-23 the live script kept delivering a RETIRED
+# `* * * * *` expression for ~16 minutes after the schedule changed, across a
+# redeploy. Nothing in the repo could see it. This job asks the platform what it
+# actually delivered and compares it with what we configured.
+#
+# Every 6 hours rather than daily: the assertion gates on the NEWEST delivery, so
+# a more frequent run narrows the window in which a one-off replay could hide.
+on:
+  schedule:
+    - cron: "20 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delivered-vs-configured:
+    name: delivered expression matches configured
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}
+      ALCHEMY_STAGE: ${{ vars.CLOUDFLARE_STAGE || 'deep-pass' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check for CLOUDFLARE_API_TOKEN
+        id: creds
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN secret; skipping the cron health check."
+          fi
+
+      - name: Assert delivered cron matches configured
+        if: steps.creds.outputs.proceed == 'true'
+        # The Worker name comes from .alchemy state, which is gitignored — so pass
+        # it explicitly here rather than relying on a developer's local state.
+        run: node scripts/cron-health.ts --worker "$(node -e 'console.log(process.env.WORKER_NAME)')"
+        env:
+          WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'alchrunbeta-api-deep-pass-6cjaiopzcff6bixa' }}
