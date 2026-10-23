@@ -70,11 +70,14 @@ export default class Api extends Cloudflare.Worker<Api>()(
     // The event-source consumer's `deadLetterQueue` is a plain `string`, not an
     // `Input<string>`, so it cannot take the generated `queueName` the way the
     // async `Queues.Consumer` resource can (a Resource's props are Input-wrapped).
-    // So the queue gets an explicit name — built here to stay stage-unique —
-    // and the consumer is handed the same literal. Without this the DLQ resource
-    // would exist but nothing would park a poison message on it.
+    // So the queue gets an explicit name and the consumer is handed the same
+    // literal. Two things the name must respect: `QueueProps.name` is used
+    // verbatim (no interpolation), and Cloudflare rejects underscore names
+    // (`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`) — while stage ids may contain `_`
+    // (`test_nolarose`). Hence the sanitising, and the stage in the name keeps it
+    // unique per stage.
     const { stage } = yield* Alchemy.Stack;
-    const deadLetterName = `auditdeadletter-${stage}`;
+    const deadLetterName = `auditdeadletter-${stage.replace(/_/g, "-")}`;
     yield* Cloudflare.Queues.Queue("AuditDeadLetter", { name: deadLetterName });
     // `Config.Redacted` registers the binding at deploy time and yields the value
     // at runtime. The default keeps the old "unconfigured → 503" behaviour
