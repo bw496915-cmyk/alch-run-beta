@@ -112,6 +112,12 @@ Run on Node 26.11.1 / pnpm 11.28.5:
 `deploy --dry-run` both stop at the credentials gate above, which is the expected
 boundary without an account.
 
+One caveat on that green typecheck: it covers *this* repo's code, not every corner of
+Alchemy's own types. beta.84 ships a fix (#2413) whose whole purpose is making
+`alchemy/State` type-check under `exactOptionalPropertyTypes` — a sign that strictness
+this high was not universally clean in beta.83. This tree never imports `alchemy/State`
+types directly (it calls `Alchemy.localState()`), which is why it comes out clean.
+
 ## Pinned versions
 
 | Package | Version |
@@ -126,19 +132,38 @@ boundary without an account.
 `pnpm-workspace.yaml` pins `onlyBuiltDependencies: [workerd]` so local emulation works,
 and `minimumReleaseAgeExclude` for the two Effect packages pnpm flagged as very fresh.
 
+beta.84 also bumps Effect to `^4.0.5` (#2372). This repo already resolves `4.0.6`, so that
+breaking change costs nothing here — and beta.83 has been exercised on 4.0.6 (install,
+typecheck, and the live dev loop), so the bump is not a hidden risk either.
+
 ## Why beta.83, not beta.84
 
 The [2.0.0-beta.84 release post](https://alchemy.run/blog/2026-10-22-beta-84/) is live,
-but as of **2026-10-23** the registry does not have it:
+but as of **2026-10-23** nothing in it can be installed. Four separate checks agree:
 
-| Package | `latest` on npm |
+| Signal | Result |
 | --- | --- |
-| `alchemy` | `2.0.0-beta.83` (no `2.0.0-beta.84`) |
-| `@alchemy.run/aws` | `0.0.0` (placeholder) |
-| `@alchemy.run/cloudflare` | `0.0.0` (placeholder) |
-| `@alchemy.run/domain` | `0.0.0` (placeholder) |
+| `alchemy` on npm | `latest` = `2.0.0-beta.83`, published 2026-10-12 — no beta.84 |
+| Split provider packages | only `0.0.0` exists for `@alchemy.run/{aws,cloudflare,domain,gcp,core}` |
+| What `@alchemy.run/{aws,cloudflare,core}@0.0.0` is | a **stale 2025-11-03 prototype that depends on Effect v3** (`cloudflare` wants `effect@^3.17`, `aws` wants `effect@^3.18`) — an abandoned prototype squatting the name, not the beta.84 package |
+| What `@alchemy.run/{domain,gcp}@0.0.0` is | a 2026-10-21 publish stub: 2 files, 669 / 696 bytes, no code |
+| The post's own install route | its command uses `https://pkg.alchemy.run/…/2e7fdc5`; that proxy 404s `{"error":"alchemy@2e7fdc5 not found"}`, and so do `latest` and `2.0.0-beta.84` paths |
 
-beta.84 also changes imports (`alchemy/Cloudflare` → `@alchemy.run/cloudflare`), so a
+The timing is the tell: `@alchemy.run/domain` and `@alchemy.run/gcp` were reserved on
+**2026-10-21**, the day before the post, one of them explicitly described as a
+"Temporary package placeholder for staged publishing". The publish was staged; the
+artifacts never landed.
+
+> **Trap:** never `pnpm add @alchemy.run/cloudflare` without an exact version today. It
+> resolves to `0.0.0`, an Effect-v3 prototype from a year earlier, and will pull a second
+> copy of Effect into the tree.
+
+What *is* already proven is how the split will be versioned: alchemy's own scoped helper
+packages (`@alchemy.run/cloudflare-runtime`, `floci`, `node-utils`,
+`frontend-frameworks`) all sit at exactly `2.0.0-beta.83` — lockstep with the core
+package. So `@alchemy.run/cloudflare@2.0.0-beta.84` is the expected pin, not a guess.
+
+beta.84 also rewrites imports (`alchemy/Cloudflare` → `@alchemy.run/cloudflare`), so a
 project scaffolded against the beta.84 API would not even resolve today. This repo takes
 the opposite trade: build on the published version, keep the split a two-line diff.
 
@@ -146,4 +171,5 @@ Check the state of the world before migrating:
 
 ```bash
 npm view alchemy dist-tags
+npm view @alchemy.run/cloudflare versions   # expect a real version, not just 0.0.0
 ```

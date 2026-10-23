@@ -1,20 +1,29 @@
 # Migrating this repo to `alchemy@2.0.0-beta.84`
 
-**Status: not runnable yet.** Checked 2026-10-23 against the npm registry:
+**Status: not runnable yet.** Checked 2026-10-23, four independent signals:
 
-| Package | `dist-tags.latest` | Verdict |
-| --- | --- | --- |
-| `alchemy` | `2.0.0-beta.83` | beta.84 not published (last publish 2026-10-12) |
-| `@alchemy.run/aws` | `0.0.0` | placeholder |
-| `@alchemy.run/cloudflare` | `0.0.0` | placeholder |
-| `@alchemy.run/domain` | `0.0.0` | placeholder |
+| Signal | Finding |
+| --- | --- |
+| `alchemy` `dist-tags.latest` | `2.0.0-beta.83`, published 2026-10-12 — no beta.84 |
+| `@alchemy.run/{aws,cloudflare,domain,gcp,core}` | only `0.0.0` |
+| `@alchemy.run/{aws,cloudflare,core}@0.0.0` | a stale 2025-11-03 prototype depending on **Effect v3** (`cloudflare`: `effect@^3.17`, `aws`: `effect@^3.18`) — NOT the beta.84 package |
+| `@alchemy.run/{domain,gcp}@0.0.0` | 2026-10-21 publish stubs: 2 files, 669 / 696 bytes |
+| The post's install route (`https://pkg.alchemy.run/<pkg>/2e7fdc5`) | HTTP 404 `{"error":"alchemy@2e7fdc5 not found"}`; `latest` and `2.0.0-beta.84` paths 404 too |
 
-The blog post is dated 2026-10-22 and the RSS feed still ends at beta.83, so the release
-looks staged ahead of the npm push. Confirm before starting:
+`@alchemy.run/domain` and `@alchemy.run/gcp` were reserved on 2026-10-21 — the day before
+the post — one of them described as a "Temporary package placeholder for staged
+publishing". The release was staged; the artifacts did not land. The RSS feed still ends
+at beta.83 as well.
+
+> **Do not `pnpm add @alchemy.run/cloudflare` without an exact version.** `latest` is
+> `0.0.0`, a year-old Effect-v3 prototype; installing it would pull a second, incompatible
+> Effect into `node_modules` and make the failure look like a beta.84 bug.
+
+Confirm before starting:
 
 ```bash
 npm view alchemy dist-tags
-npm view @alchemy.run/cloudflare dist-tags
+npm view @alchemy.run/cloudflare versions
 ```
 
 You want a real version on **both**. If only `alchemy` moved, the import rewrite cannot
@@ -36,8 +45,15 @@ resolve, and if only the scoped packages are there, the core is still beta.83.
    },
 ```
 
-The scoped provider package is expected to be versioned in lockstep with `alchemy`;
-verify the exact number from the registry rather than assuming it matches.
+The scoped provider package version should match `alchemy` exactly. That is now evidence,
+not a guess: alchemy's existing scoped helpers (`@alchemy.run/cloudflare-runtime`,
+`floci`, `node-utils`, `frontend-frameworks`) all sit at `2.0.0-beta.83`, lockstep with
+the core package. Still read the real number off the registry at migration time.
+
+Also add the package *before* anything else: the CLI discovers a provider's auth, state
+store and `alchemy provider` commands through a new **Contributions module**, keyed off
+your project's dependencies. Without `@alchemy.run/cloudflare` in `package.json`, even
+`--backend cloudflare` and Cloudflare profile auth are unavailable.
 
 ### 2. `alchemy.run.ts`
 
@@ -78,10 +94,37 @@ rg -n 'from "alchemy/' alchemy.run.ts src/
 | --- | --- | --- |
 | Providers moved into `@alchemy.run/*` packages | **Yes** | The 3 files above; every provider import is concentrated in two of them |
 | State store commands moved under `alchemy state` (`alchemy provider cloudflare bootstrap` → `alchemy state bootstrap --backend cloudflare`) | No, not yet | This repo uses `Alchemy.localState()`, and no bootstrap/prisma command is wired into any script. It becomes relevant only if you switch to `Cloudflare.state()` |
+| **Effect bumped to `^4.0.5`** (#2372) | No | Already resolved: `effect@4.0.6` and `@effect/platform-node@4.0.6` satisfy it, and beta.83 has been run on 4.0.6 (install, typecheck, live dev loop) |
 | `AWS.Lambda.isBindingHost` removed; AWS hosts now get IAM grants | No | No AWS resources in this stack |
 | Distilled error classes are no longer Effect Schemas | No | No distilled SDK error handling in this code |
 | Prisma/Neon env values use the runtime wire format (`{"_tag":"Redacted",…}`) | No | No Prisma or Neon providers |
 | AWS framework sites default to Web Functions | No | No AWS |
+
+### Relocations *within* packages at beta.84
+
+The split also moved a few exports between modules. None of them appear in this tree, but
+they are listed so the next reader does not have to re-derive them:
+
+| beta.83 | beta.84 |
+| --- | --- |
+| `ACME.Cloudflare.ZoneSolver` | `Cloudflare.ACME.ZoneSolver` |
+| `Stripe.Cloudflare.ConsumeEventsLive` | `Stripe.ConsumeEventsLive` |
+| `GitHub.Cloudflare.RepositoryEventSourceLive` | `GitHub.RepositoryEventSourceLive` |
+| `alchemy/Server` → `ServerHost` | `alchemy/Runtime/Process` → `ServerHost` |
+| `alchemy/SQL/LibSQL` → `LibSQL` | `@alchemy.run/sql/SQLite` → `LibSQL` |
+
+`Alchemy.localState()` and `inMemoryState()` are unaffected: the post states that
+`alchemy` keeps the engine, the CLI, and the local and in-memory state stores. Only cloud
+state stores (`Cloudflare.state()`, `AWS.state()`, the new `GCP.state()`) move into their
+provider packages — and both grow a `name` option for named stores:
+
+```ts
+state: Cloudflare.state({ name: "team-a" }),
+```
+
+```bash
+alchemy state bootstrap --backend cloudflare --name team-a
+```
 
 Optional at beta.84, not needed for this stack: `Cloudflare.Hyperdrive.lookup`,
 `localUploads` on R2 buckets, Worker website builds receiving `env`.
@@ -106,6 +149,14 @@ pnpm plan               # expect "Plan: 0 to create" against an existing stage,
 
 - **`Cannot find package '@alchemy.run/cloudflare'`** — the scoped package is not
   published yet; stay on beta.83.
+- **Install succeeds but typecheck drowns in Effect errors** — you resolved the `0.0.0`
+  prototype instead of a beta.84 pin. Confirm with:
+
+  ```bash
+  node -e 'console.log(require("./node_modules/@alchemy.run/cloudflare/package.json").version)'
+  pnpm why effect   # a second Effect copy means the prototype came in
+  ```
+
 - **`providers()` / `state()` not exported** — beta.84 may split those helpers
   differently. Inspect the real export map rather than guessing:
 
@@ -117,3 +168,18 @@ pnpm plan               # expect "Plan: 0 to create" against an existing stage,
   `dev_<user>`) are unchanged, so `pnpm dev` should not need a clean slate.
 - No rollback complexity: `git checkout -- . && pnpm install` returns to beta.83,
   because nothing in this repo depends on beta.84-only features.
+
+## About the post's `pkg.alchemy.run` install command
+
+The release post installs prerelease builds by URL rather than by version
+(`bun add https://pkg.alchemy.run/alchemy/2e7fdc5 …`). Today that route is not a way
+around the missing npm publish either — every path tried 404s:
+
+```bash
+curl -s https://pkg.alchemy.run/alchemy/2e7fdc5          # {"error":"alchemy@2e7fdc5 not found"}
+curl -s -o /dev/null -w '%{http_code}\n' https://pkg.alchemy.run/alchemy/latest   # 404
+```
+
+If you find the proxy serving a commit sha later but npm still lags, that URL form is the
+sanctioned install path — swap it into `package.json` as an exact URL dependency, then
+re-run `pnpm typecheck` before trusting it.
