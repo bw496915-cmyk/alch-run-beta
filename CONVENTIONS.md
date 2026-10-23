@@ -123,7 +123,7 @@ Measured after the refactor (baseline in brackets):
 | Gate | Command | Hits |
 | --- | --- | --- |
 | hand-written binding interfaces | `rg -c 'interface \w+Like\|interface Env\b' src/ alchemy.run.ts` | **0** (was 14) |
-| hand-built JSON responses | `rg -n 'new Response\(JSON' src/` | **0** (was 2) — `Response.json` everywhere. One `new Response(body, …)` remains and is correct: it returns an R2 object *stream* with custom headers, which is the platform API, not a JSON hand-roll |
+| hand-built JSON responses | `rg -n 'new Response\(JSON' src/` | **0** (was 2) — `Response.json` everywhere. One `new Response(body, …)` remains and is correct: it returns the stored R2 object body with custom headers, which is the platform API, not a JSON hand-roll |
 | URL-string DO RPC | `rg -c 'https://(counter\|do)\b' src/` | **0** (was 2) — the DO exposes typed RPC methods, called as `getByName(…).increment()` |
 | handlers without `ctx` | `rg -n 'async (fetch\|scheduled)\(.*env: ApiEnv\)' src/` | **0** (was 2) — both take `ctx: ExecutionContext` |
 | bash wrapper | `test -e scripts/alch.sh` | **gone** — the CLI is driven from `package.json` scripts, and `.github/workflows/ci.yml` calls `alchemy plan` directly |

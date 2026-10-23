@@ -25,7 +25,7 @@ env:
   # CLOUDFLARE_ACCOUNT_ID overrides it; the fallback keeps a fork working without
   # any configuration. Exposing the account id is not a secret.
   CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}
-  # Stage passed to scripts/alch.sh. Override with the repo variable
+  # Stage passed to `alchemy plan` below. Override with the repo variable
   # CLOUDFLARE_STAGE; defaults to the stage README documents.
   STAGE: ${{ vars.CLOUDFLARE_STAGE || 'deep-pass' }}
 
@@ -122,7 +122,7 @@ jobs:
             echo "CLOUDFLARE_API_TOKEN is present — planning stage '${STAGE}'."
           elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::workflow_dispatch requested a plan without CLOUDFLARE_API_TOKEN; scripts/alch.sh will exit 1."
+            echo "::warning::workflow_dispatch requested a plan without CLOUDFLARE_API_TOKEN; the plan step will fail."
           else
             echo "proceed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No CLOUDFLARE_API_TOKEN secret; skipping the plan. Push-triggered plans need the secret set."

@@ -47,6 +47,6 @@ jobs:
         if: steps.creds.outputs.proceed == 'true'
         # The Worker name comes from .alchemy state, which is gitignored — so pass
         # it explicitly here rather than relying on a developer's local state.
-        run: node scripts/cron-health.ts --worker "$(node -e 'console.log(process.env.WORKER_NAME)')"
+        run: node scripts/cron-health.ts --worker "$WORKER_NAME"
         env:
           WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'alchrunbeta-api-deep-pass-6cjaiopzcff6bixa' }}
