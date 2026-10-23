@@ -138,6 +138,12 @@ fresh state would try to recreate resources that already exist.
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for
 the subcommand in hand. `$ALCHEMY_STAGE` selects the stage; `dev` defaults to `dev_${USER}`.
 
+Common options: `--stage`, `--profile`, `--env-file` (defaults `.env`), `--yes`, `--no-input`,
+`--config`. Exit codes are script-safe (`0` completed, `1` failed — including a declined plan,
+`130` cancelled), and the interactive TUI is suppressed under `--no-input`, `ALCHEMY_PLAIN=1`,
+`CI=1`, a non-TTY, or an agent env var — which is why CI runs `plan --no-input`. The full command
+tree is in [REVIEW-2026-10-23.md §12.2](./REVIEW-2026-10-23.md).
+
 ## Testing
 
 Offline by construction: `env` is typed by `ApiEnv` (`Cloudflare.InferEnv` from the composition
