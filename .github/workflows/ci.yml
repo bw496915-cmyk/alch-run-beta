@@ -37,6 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Scratch space is an environment failure, not a network one: a read-only
+      # /tmp fails at the write and looks like an empty response further down.
+      # Probe before anything else so a degraded container is named, not guessed.
+      - name: Environment preflight (scratch writability)
+        run: node scripts/preflight.ts
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:

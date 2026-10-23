@@ -15,7 +15,8 @@
     "logs": "alchemy logs",
     "check-env": "alchemy provider check-env",
     "state": "alchemy state list",
-    "cron-health": "node scripts/cron-health.ts"
+    "cron-health": "node scripts/cron-health.ts",
+    "preflight": "node scripts/preflight.ts"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.6",

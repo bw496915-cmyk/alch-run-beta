@@ -30,7 +30,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { evaluate, type Delivery } from "./cron-health-logic.ts";
+import { evaluate, readEnvelope, type Delivery } from "./cron-health-logic.ts";
 
 const argv = process.argv.slice(2);
 const flag = (name: string, fallback: string | undefined): string | undefined => {
@@ -64,26 +64,27 @@ const workerName = (): string => {
   }
 };
 
-interface ApiEnvelope<T> {
-  readonly success: boolean;
-  readonly result: T;
-  readonly errors?: ReadonlyArray<{ message?: string }>;
-}
-
 const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}${path}`,
-    {
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
       ...init,
       headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-    },
-  );
-  const body = (await response.json()) as ApiEnvelope<T>;
-  if (!body.success) {
-    console.error(`${path} failed: ${JSON.stringify(body.errors ?? [])}`);
+    });
+  } catch (error) {
+    // Unreachable is exit 2 ("cannot observe"), never 1 ("assertion failed").
+    console.error(`${path} unreachable: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(2);
   }
-  return body.result;
+
+  const body = await response.text().catch(() => "");
+  const read = readEnvelope<T>(response.status, body);
+  if (!read.ok) {
+    console.error(`${path} failed: ${read.detail}`);
+    process.exit(2);
+  }
+  return read.value;
 };
 
 interface ScheduledEvent {

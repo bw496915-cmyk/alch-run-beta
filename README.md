@@ -17,6 +17,7 @@ src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Co
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
 test/api.test.ts          offline Vitest suite, every binding faked in memory
+scripts/preflight.ts      session preflight: probes scratch space, reports degraded
 vitest.config.ts          pins the suite to test/**/*.test.ts
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
 CONVENTIONS.md            exact-Alchemy-shape policy: allow-list, deny-list, gates
@@ -111,6 +112,7 @@ fresh state would try to recreate resources that already exist.
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
 | `pnpm cron-health` | Asserts the cron expression Cloudflare **delivers** matches the one configured — the one external mechanism no other check can see ([§8](./REVIEW-2026-10-23.md)) |
+| `pnpm preflight` | Probes scratch space at session start: writes a nonce, reads it back, removes it, and reports `scratch: ok | READ-ONLY`. A read-only `/tmp` is an environment failure, not a network error ([FAILURES.md](./FAILURES.md) rule 11) |
 
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for
 the subcommand in hand. `$ALCHEMY_STAGE` selects the stage; `dev` defaults to `dev_${USER}`.

@@ -18,7 +18,7 @@ be our own measurement window.
 | 7 | Durable Object call fails | `errorcode: 1101`, `internal error; reference = 32g8fknruavetv9a6cnm4h38`, no stack, `logs: []` | **Cloudflare-internal**, established from Workers Observability telemetry, not from tail: the failing invocation has `cpuTimeMs: 0`, `exceptions: null`, `logs: null`, and **no `Counter` invocation event at all** — the object was never entered, so no user code ran. The same script version had served 17 requests in the previous two minutes, v2 and v3 share one etag (cron-only redeploy, identical code), and it healed with no deploy while the same instance kept its storage | **closed as platform-side** — not reproducible in 4 deploy cycles × 3 class shapes, including the exact incident pacing | README "Live deployment" |
 | 8 | "Cron attached, never fires" | no error at all, because nothing had fired yet: trigger present in `schedules`, zero invocations in `tail`, zero `cron.fire` rows | **our measurement window.** A newly attached trigger's first delivery arrived **6m42s / 6m46s / 11m11s** after attach across three scripts; the verdict had been written ~10 minutes in. The handler and the async `crons` shape were correct all along | **closed** — 16 `cron.fire` rows, `scheduled outcome=ok`, [CRON-FINDINGS.md](./CRON-FINDINGS.md) | README "Live deployment"; cron findings file |
 | 9 | **Two agents committed to one branch; a `git reset` discarded a commit** | `a2dad44` (the wrapper deletion) vanished from `main` twenty seconds after it landed: another agent ran `git reset 8b7b63c` while recovering its own amended commit, and its replacement commit was built on the reset base. One commit in the race also captured a half-written `package.json` | parallel agents sharing a branch, and `git reset` is not additive — a commit made in the same second as another agent's is still just a ref move away from disappearing | recovered: the object survived, worktree still held the changes, re-committed and verified by inspecting `HEAD` contents (`git show HEAD:package.json`) rather than trusting `git log` | this row, and the rule below |
-| 10 | **A read-only sandbox denies even `/tmp`, silently truncating work** | `echo probe > /tmp/x` → `Operation not permitted`; a `curl -o /tmp/CH.md` earlier had failed the same way and looked like a network error | a session-level read-only policy blocks temp spills, so any step that stages output in `/tmp` fails at the *write*, not the read — and a longer report can then look complete while missing the parts that could not be staged | streamed everything inline through pipes instead of files; noted here because it is invisible unless you test it | no — a session mode, not a repo setting |
+| 10 | **A read-only sandbox denies even `/tmp`, silently truncating work** | `echo probe > /tmp/x` → `Operation not permitted`; a `curl -o /tmp/CH.md` earlier had failed the same way and looked like a network error | a session-level read-only policy blocks temp spills, so any step that stages output in `/tmp` fails at the *write*, not the read — and a longer report can then look complete while missing the parts that could not be staged | streamed everything inline through pipes instead of files; noted here because it is invisible unless you test it | **`pnpm preflight`** (`scripts/preflight.ts`) — probes at session start, and the report opens with `scratch: DEGRADED` when it says so; rule 11 below |
 | 11 | `wrangler tail` prints nothing through a pipe | `… \| grep <pattern>` produced nothing, including for requests known to arrive | `tail` does not flush per line to a pipe; the stream never ends, so the filter sees nothing | stream to a file for a bounded window | working practice, recorded here |
 
 **Residual anomaly — now asserted instead of described.** `deep-pass` delivery stopped after
@@ -76,13 +76,27 @@ incident hours later.
 10. Parallel agents get their own branch or worktree; if they must share one, commits are
     serialized and `HEAD` is verified by content (`git show HEAD:<file>`) afterwards —
     `git log` alone will not tell you whose commit survived.
-11. Check scratch space early (`echo x > /tmp/x`): a read-only session fails at the write, and that
-    failure looks like an empty network response — the report then reads complete while missing
-    whatever could not be staged. Corollary: revert a mutation of a tracked file with
-    `git checkout -- <file>`, never a copy parked in `/tmp`.
+11. Probe scratch space at the **start** of a session, before the first write — not once a write has
+    failed: `pnpm preflight` (`scripts/preflight.ts`) writes a nonce, reads it back, removes it and
+    reports `scratch: ok | READ-ONLY`. A read-only session fails at the write, and that failure
+    looks like an empty network response — the report then reads complete while missing whatever
+    could not be staged. When it says degraded, the report opens with `scratch: DEGRADED` and the
+    step is never retried as a network error or a bad command. Corollary: revert a mutation of a
+    tracked file with `git checkout -- <file>` (or `git stash` when unrelated edits must survive),
+    never a copy parked in `/tmp`; `/tmp` is not durable evidence, and the backup that "exists" in
+    a read-only session is the same silent failure this rule is about.
 12. Never cite an issue as "closed" without its `state_reason` **and** the PR or commit that closed it:
     fixed, duplicate and wontfix all render as `state: closed`, and only one of them lets a
     workaround expire. **Enforced by `test/docs.test.ts`** — the workaround table's closure and
     expiry columns are asserted, not trusted.
 13. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
     (`cpuTimeMs`, exception objects, entrypoint events) before blaming the code.
+14. Confirm every operation whose failure would be silent by its artifact, not its return code:
+    `curl -o` by the file, a redirect by the target's contents, a deploy by the resource diff
+    (`Done: 0 succeeded` means 0 changed — not "the fix shipped"), a write by reading it back.
+    `pnpm preflight` applies the same check to the environment, and `scripts/cron-health.ts`
+    classifies an unobservable endpoint as exit 2 instead of a failed assertion.
+15. The first deploy on a newly pinned `alchemy` must go out at **100% traffic** (no
+    `version.traffic`); under gradual deployment it fails with `WorkerVersionConfigError`. That
+    belongs to the export-era deploy flow, not to one release, so it applies to every future pin
+    bump — see `MIGRATION-beta84.md` §"One-way door" and `UPGRADE.md` step 2.

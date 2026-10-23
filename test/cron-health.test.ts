@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluate, type Delivery } from "../scripts/cron-health-logic.ts";
+import { evaluate, readEnvelope, type Delivery } from "../scripts/cron-health-logic.ts";
 
 /**
  * The cron scheduler is the one mechanism in this project that is external and
@@ -104,5 +104,48 @@ describe("cron health", () => {
     const b = delivery("2026-10-23T16:28:56Z", "* * * * *");
 
     expect(run(["0 3 * * *"], [a, b])).toEqual(run(["0 3 * * *"], [b, a]));
+  });
+});
+
+/**
+ * The exit-code contract (0 healthy, 1 assertion failed, 2 cannot observe) is
+ * only honest if an unobservable endpoint is classified as such. These cases are
+ * the ones that used to throw out of `response.json()` and surface as exit 1.
+ */
+describe("API envelope classification", () => {
+  it("reads a successful envelope", () => {
+    expect(readEnvelope<{ cron: string }>(200, '{"success":true,"result":{"cron":"0 3 * * *"}}')).toEqual({
+      ok: true,
+      value: { cron: "0 3 * * *" },
+    });
+  });
+
+  it("classifies a proxy's HTML error page as unobservable, not as a failed assertion", () => {
+    const read = readEnvelope(502, "<html><body>Bad gateway</body></html>");
+
+    expect(read.ok).toBe(false);
+    expect(read.ok === false && read.detail).toContain("HTTP 502");
+    expect(read.ok === false && read.detail).toContain("did not answer");
+  });
+
+  it("classifies a 200 whose body is not JSON as an endpoint failure", () => {
+    const read = readEnvelope(200, "<html><body>captive portal</body></html>");
+
+    expect(read.ok).toBe(false);
+    expect(read.ok === false && read.detail).toContain("non-JSON");
+  });
+
+  it("classifies success:false with the API's own errors", () => {
+    const read = readEnvelope(200, '{"success":false,"errors":[{"message":"Invalid API Token"}]}');
+
+    expect(read.ok).toBe(false);
+    expect(read.ok === false && read.detail).toContain("Invalid API Token");
+  });
+
+  it("classifies a non-2xx status even when the body happens to be JSON", () => {
+    const read = readEnvelope(500, '{"success":true,"result":{}}');
+
+    expect(read.ok).toBe(false);
+    expect(read.ok === false && read.detail).toContain("HTTP 500");
   });
 });

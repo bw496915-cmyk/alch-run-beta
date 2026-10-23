@@ -85,3 +85,47 @@ export const evaluate = (input: {
 
   return { ok: failures.length === 0, failures, advisories };
 };
+
+/* ------------------------------------------------------------------ */
+/* envelope classification                                             */
+/* ------------------------------------------------------------------ */
+
+export type EnvelopeRead<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly detail: string };
+
+/**
+ * Classify one API response before trusting it.
+ *
+ * The script's exit codes are part of its contract: **1** means "the assertion
+ * failed", **2** means "cannot observe". A proxy's HTML 502 page used to throw
+ * out of `response.json()` and exit 1 — an environment failure reported as "the
+ * cron is wrong". `FAILURES.md` rule 4: verify the effect (the body was the
+ * API's), not the return code.
+ */
+export const readEnvelope = <T>(status: number, body: string): EnvelopeRead<T> => {
+  if (status < 200 || status >= 300) {
+    return { ok: false, detail: `HTTP ${status} — the API endpoint did not answer` };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return {
+      ok: false,
+      detail: "non-JSON body — a proxy or error page answered instead of the API",
+    };
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return { ok: false, detail: "envelope is not an object" };
+  }
+
+  const envelope = parsed as { success?: unknown; result?: unknown; errors?: unknown };
+  if (envelope.success !== true) {
+    return { ok: false, detail: `success:false — ${JSON.stringify(envelope.errors ?? [])}` };
+  }
+
+  return { ok: true, value: envelope.result as T };
+};
