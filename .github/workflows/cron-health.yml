@@ -57,3 +57,12 @@ jobs:
           node scripts/cron-health.ts --worker "$WORKER_NAME"
         env:
           WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+
+      # The audit found the dead-letter queue is a silent sink: a poison message is
+      # parked after maxRetries with nothing draining or alerting it. This is the
+      # invariant that fails loudly — see AUDIT-2026-10-23-ground-truth.md.
+      - name: Assert the dead-letter queue is empty
+        if: steps.creds.outputs.proceed == 'true'
+        run: node scripts/queue-health.ts
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}

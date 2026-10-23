@@ -45,6 +45,7 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
   "test/manifest.test.ts",
   "test/policy.test.ts",
   "test/preflight.test.ts",
+  "test/queue-health.test.ts",
 ];
 
 /**
@@ -54,7 +55,7 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
  * queue-redelivery case. Raise it deliberately when adding tests; lowering it is
  * the review gate.
  */
-const MIN_TESTS = 68;
+const MIN_TESTS = 72;
 
 /** A suite's own declarations: two-space `it(` / `test(` at the start of a line. */
 const DECLARED_TEST = /^ {2}(?:it|test)\(/gm;
