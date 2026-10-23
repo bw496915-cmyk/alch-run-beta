@@ -2,7 +2,8 @@
 
 What broke on this project's first day, split into what the environment did and what we did.
 Each row ends with the file that now prevents a repeat. Two failures are unanswered and stay
-that way here: the Durable Object `1101` and the cron that never fired.
+that way here: the Durable Object `1101`, and the cron whose "never fires" verdict turned out to
+be our own measurement window.
 
 ## Environment failures
 
@@ -15,10 +16,18 @@ that way here: the Durable Object `1101` and the cron that never fired.
 | 5 | keychain reads fail | exit `128` from `security … -w`, no output | the entry's ACL needs an interactive "Allow"; a non-interactive process can never satisfy it | stopped reading it; token supplied out of band | `README` "Credentials"; the CI plan job skips with a notice when no token secret exists |
 | 6 | `/user/tokens/verify` rejects a working token | `Invalid API Token` | that endpoint verifies *user*-scoped tokens; an account-scoped token can be valid and still fail it, while workers/d1/r2/kv/queues reads all returned 200 | treat as advisory; probe the endpoints actually used | README "Credentials" |
 | 7 | Durable Object call fails | `errorcode: 1101`, `internal error; reference = 32g8fknruavetv9a6cnm4h38`, no stack, `logs: []` | **Cloudflare-internal**, established from Workers Observability telemetry, not from tail: the failing invocation has `cpuTimeMs: 0`, `exceptions: null`, `logs: null`, and **no `Counter` invocation event at all** — the object was never entered, so no user code ran. The same script version had served 17 requests in the previous two minutes, v2 and v3 share one etag (cron-only redeploy, identical code), and it healed with no deploy while the same instance kept its storage | **closed as platform-side** — not reproducible in 4 deploy cycles × 3 class shapes, including the exact incident pacing | README "Live deployment" |
-| 8 | Cron attached, never fired | no error: trigger present in `schedules`, zero scheduled invocations in `tail`, zero `cron.fire` rows, `cronFires` never advanced | **not established.** The original shape hypothesis was **falsified** (see below), so this is handler/runtime, not declaration | **open** — track A | README "Live deployment" |
-| 9 | `wrangler tail` prints nothing through a pipe | `… \| grep <pattern>` produced nothing, including for requests known to arrive | `tail` does not flush per line to a pipe; the stream never ends, so the filter sees nothing | stream to a file for a bounded window | working practice, recorded here |
+| 8 | "Cron attached, never fires" | no error at all, because nothing had fired yet: trigger present in `schedules`, zero invocations in `tail`, zero `cron.fire` rows | **our measurement window.** A newly attached trigger's first delivery arrived **6m42s / 6m46s / 11m11s** after attach across three scripts; the verdict had been written ~10 minutes in. The handler and the async `crons` shape were correct all along | **closed** — 16 `cron.fire` rows, `scheduled outcome=ok`, [CRON-FINDINGS.md](./CRON-FINDINGS.md) | README "Live deployment"; cron findings file |
+| 9 | **Two agents committed to one branch; a `git reset` discarded a commit** | `a2dad44` (the wrapper deletion) vanished from `main` twenty seconds after it landed: another agent ran `git reset 8b7b63c` while recovering its own amended commit, and its replacement commit was built on the reset base. One commit in the race also captured a half-written `package.json` | parallel agents sharing a branch, and `git reset` is not additive — a commit made in the same second as another agent's is still just a ref move away from disappearing | recovered: the object survived, worktree still held the changes, re-committed and verified by inspecting `HEAD` contents (`git show HEAD:package.json`) rather than trusting `git log` | this row, and the rule below |
+| 10 | `wrangler tail` prints nothing through a pipe | `… \| grep <pattern>` produced nothing, including for requests known to arrive | `tail` does not flush per line to a pipe; the stream never ends, so the filter sees nothing | stream to a file for a bounded window | working practice, recorded here |
 
-**Why 8 is not a shape bug.** The first hypothesis was that `crons: [...]` + a plain
+**Residual anomaly, still open (platform-side).** `deep-pass` delivery stopped after 16:06:52 and
+stayed silent ~16 minutes, then produced four more fires carrying the **retired** `* * * * *`
+expression right after a redeploy, then went quiet at 16:28:55 — while an isolated probe fired ten
+consecutive minutes without stopping. That looks like queued or stale scheduler delivery in this
+account, not anything in the repo. The next real signal is the committed `0 3 * * *` fire at
+2026-10-24 03:00 UTC.
+
+**Why 8 was not a shape bug.** The first hypothesis was that `crons: [...]` + a plain
 `scheduled` export is undocumented for async Workers. The [`Worker.d.ts:704-716`](
 ../node_modules/alchemy/lib/Cloudflare/Workers/Worker.d.ts) comment and the cron doc page both
 document exactly that ("This is how async (non-Effect) Workers configure Cron Triggers"). The
@@ -58,5 +67,10 @@ incident hours later.
 7. Send long-running streams (tail, watch, logs) to a file, not a pipe.
 8. A transient, undocumented failure stays **open** with its reference recorded — do not
    promote a hypothesis to a root cause; and query persisted telemetry, not a lost stream.
-9. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
-   (`cpuTimeMs`, exception objects, entrypoint events) before blaming the code.
+9. Size the observation window to the mechanism: a fresh cron trigger can take 6–11 minutes to
+   deliver its first event, so a five-minute check reports a false negative.
+10. Parallel agents get their own branch or worktree; if they must share one, commits are
+    serialized and `HEAD` is verified by content (`git show HEAD:<file>`) afterwards —
+    `git log` alone will not tell you whose commit survived.
+11. A generic error page (`1101`) is a symptom, never evidence: check whether any handler ran
+    (`cpuTimeMs`, exception objects, entrypoint events) before blaming the code.

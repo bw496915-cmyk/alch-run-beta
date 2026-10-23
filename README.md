@@ -42,8 +42,8 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `DELETE /photos/<key>` | R2 + D1 + KV | Removes object + row, busts cache |
 
 Three handlers: `fetch` (above), `queue` (audit consumer, per-message `ack`/`retry`, attached
-by `Queues.Consumer({ scriptName: worker.workerName })`), `scheduled` (`0 3 * * *` — wired, never
-observed to fire).
+by `Queues.Consumer({ scriptName: worker.workerName })`), `scheduled` (`0 3 * * *`, proven to
+fire).
 
 The `Counter` Durable Object is exported from `src/Api.ts`, extends `DurableObject` from
 `cloudflare:workers` (the documented async-Worker shape), and is bound with
@@ -71,11 +71,12 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | KV namespace | `2430e2e45a8544568114b1c098146c42` | second `GET /photos` returns `x-cache: hit` |
 | Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` | an audit row appears that no request wrote |
 | Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | counter increments across calls and survives eviction (`3`→`4`) |
-| Cron trigger | on the Worker | **attached, never fired** — [FAILURES.md](./FAILURES.md) #8 |
+| Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
 
 Three live caveats, none of them green:
 
-- the cron has never fired; an attached trigger is not a working trigger;
+- the cron's *daily* schedule has not been observed: the 16 rows came from a temporary
+  `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC;
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
   [FAILURES.md](./FAILURES.md) #7;
@@ -195,7 +196,7 @@ not a quiet pass.
 | `PUT` of a non-ASCII body records UTF-8 bytes (`"é"` → 2) | ✅ | ✅ |
 | Consumer drains to D1 → `/audit` shows the event | ✅ | ✅ |
 | D1 migrations applied (`photos`, `audit_events`, `__alchemy_migrations`) | ✅ | ✅ |
-| **Cron fires** → `cronFires` + `cron.fire` row | not testable in seconds | **✖ never observed** |
+| **Cron fires** → `cronFires` + `cron.fire` row | ✅ (16 rows, temp `* * * * *`) | ✅ same rows, `scheduled outcome=ok` in observability |
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
@@ -205,8 +206,10 @@ Two runtime behaviours worth knowing:
 
 - the local queue consumer drains on its own pull loop — an event reached `audit_events` about
   15s after the `PUT`. An empty `/audit` is not a broken consumer.
-- `scheduled` cannot be exercised locally in seconds, and a live `* * * * *` did not fire
-  either, so the cron is untested at both levels.
+- a **newly attached** cron trigger does not fire on the next minute: measured first-fire
+  latency was 6m42s, 6m46s and 11m11s across three scripts. Checking inside the first ~5
+  minutes reads as "never fires" and is wrong — allow ~15 minutes before concluding anything
+  ([CRON-FINDINGS.md](./CRON-FINDINGS.md)).
 
 The green typecheck covers this repo's code, not every corner of Alchemy's own types: beta.84
 ships #2413 because `alchemy/State` did not type-check under `exactOptionalPropertyTypes`, and

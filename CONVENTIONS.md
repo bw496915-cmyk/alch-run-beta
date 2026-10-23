@@ -29,7 +29,7 @@ Pinned: `alchemy@2.0.0-beta.83`, `effect@4.0.6`, `@cloudflare/workers-types@5.20
 | `export class Counter extends DurableObject` (from `cloudflare:workers`) exported by the entry module | `DurableObject.d.ts:870-897` |
 | `env: { COUNTER: Cloudflare.DurableObject("Counter", { className: "Counter" }) }` | `DurableObject.d.ts:176-206` |
 | plain `async queue(batch, env)` with per-message `ack()` / `retry()` | queues page, §"What's the difference vs. a native `queue()` handler?" |
-| `crons: ["0 3 * * *"]` + plain `async scheduled(controller, env, ctx)` | cron page note; `Worker.d.ts:704-716` |
+| `crons: ["0 3 * * *"]` + plain `async scheduled(controller, env, ctx)` | cron page note; `Worker.d.ts:704-716`; **proven to fire** on this account ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) — and the Effect-native `Workers.cron` alternative failed to deploy here, so this is not a "modernise it later" candidate |
 | `Queues.Consumer("Id", { queueId, scriptName: worker.workerName })` | `Queues/Consumer.d.ts:76-114` |
 | raw `env.DB.prepare(…)` on a typed `D1Database` | it *is* the D1 API; no wrapper wanted |
 
