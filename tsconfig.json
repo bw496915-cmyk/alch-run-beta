@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "module": "preserve",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -15,7 +17,15 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ]
   },
-  "include": ["alchemy.run.ts", "src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "alchemy.run.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
 }

@@ -144,6 +144,16 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
     headers: { "content-type": "application/json; charset=utf-8", ...headers },
   });
 
+/** A KV value that no longer parses is stale cache, not a request failure. */
+const parseCachedIndex = (raw: string): ReadonlyArray<PhotoRow> | null => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ReadonlyArray<PhotoRow>) : null;
+  } catch {
+    return null;
+  }
+};
+
 const listPhotos = async (env: Env): Promise<ReadonlyArray<PhotoRow>> => {
   const { results } = await env.DB.prepare(
     "SELECT key, bytes, content_type, created_at FROM photos ORDER BY created_at DESC LIMIT 100",
@@ -242,7 +252,10 @@ export default {
     if (path === "/photos" && request.method === "GET") {
       const cached = await env.CACHE.get(INDEX_CACHE_KEY);
       if (cached !== null) {
-        return json({ source: "kv", photos: JSON.parse(cached) }, 200, { "x-cache": "hit" });
+        const parsed = parseCachedIndex(cached);
+        if (parsed !== null) {
+          return json({ source: "kv", photos: parsed }, 200, { "x-cache": "hit" });
+        }
       }
       const photos = await listPhotos(env);
       await env.CACHE.put(INDEX_CACHE_KEY, JSON.stringify(photos), {
@@ -251,8 +264,8 @@ export default {
       return json({ source: "d1", photos }, 200, { "x-cache": "miss" });
     }
 
-    if (path === "/photos" && request.method === "POST") {
-      return json({ error: "missing key in path: PUT /photos/<key>" }, 400);
+    if (path === "/photos" && (request.method === "PUT" || request.method === "POST")) {
+      return json({ error: `missing key in path: ${request.method} /photos/<key>` }, 400);
     }
 
     if (path.startsWith("/photos/")) {
@@ -286,6 +299,7 @@ export default {
 
       if (request.method === "PUT") {
         const body = await request.text();
+        const byteLength = new TextEncoder().encode(body).byteLength;
         const contentType = request.headers.get("content-type") ?? "text/plain";
         const createdAt = new Date().toISOString();
 
@@ -299,7 +313,7 @@ export default {
              content_type = excluded.content_type,
              created_at = excluded.created_at`,
         )
-          .bind(key, body.length, contentType, createdAt)
+          .bind(key, byteLength, contentType, createdAt)
           .run();
         await env.CACHE.delete(INDEX_CACHE_KEY);
 
@@ -307,12 +321,12 @@ export default {
           id: crypto.randomUUID(),
           type: "photo.put",
           key,
-          bytes: body.length,
+          bytes: byteLength,
           at: createdAt,
         };
         await env.EVENTS.send(event);
 
-        return json({ key, bytes: body.length, contentType, createdAt, queued: event.id }, 201);
+        return json({ key, bytes: byteLength, contentType, createdAt, queued: event.id }, 201);
       }
 
       if (request.method === "DELETE") {
@@ -321,7 +335,7 @@ export default {
           .bind(key)
           .run();
         await env.CACHE.delete(INDEX_CACHE_KEY);
-        return json({ key, deleted: deleted.success });
+        return json({ key, deleted: Number(deleted.meta.changes ?? 0) > 0 });
       }
     }
 

@@ -628,15 +628,13 @@ describe("DELETE /photos/<key>", () => {
     expect((await fetchWorker("/photos/x")).status).toBe(404);
   });
 
-  it("treats deleting an absent key as success with zero changes (idempotent)", async () => {
-    // `deleted` comes from the statement's success flag, not the affected-row
-    // count, so a no-op delete still reports `deleted: true`. Recorded as-is.
+  it("reports deleted: false for an absent key (affected-row count, not statement success)", async () => {
     const response = await fetchWorker("/photos/never", { method: "DELETE" });
 
     expect(response.status).toBe(200);
     expect(await readJson<{ deleted: boolean }>(response)).toEqual({
       key: "never",
-      deleted: true,
+      deleted: false,
     });
   });
 });
@@ -646,23 +644,22 @@ describe("DELETE /photos/<key>", () => {
 /* ------------------------------------------------------------------ */
 
 describe("missing key", () => {
-  it("POST /photos returns 400 with the write hint", async () => {
+  it("POST /photos returns 400 naming the method used", async () => {
     const response = await fetchWorker("/photos", { method: "POST" });
+
+    expect(response.status).toBe(400);
+    expect(await readJson<{ error: string }>(response)).toEqual({
+      error: "missing key in path: POST /photos/<key>",
+    });
+  });
+
+  it("PUT /photos (no key) returns 400, not 404 — the guarded method matches the message", async () => {
+    const response = await putPhoto("", "hi");
 
     expect(response.status).toBe(400);
     expect(await readJson<{ error: string }>(response)).toEqual({
       error: "missing key in path: PUT /photos/<key>",
     });
-  });
-
-  it("PUT /photos (no key) falls through to 404 — the guard only matches POST", async () => {
-    // KNOWN DEFECT in src/Api.ts: the 400 branch tests `request.method === "POST"`
-    // while its own message names `PUT /photos/<key>`, so the method a caller
-    // would misuse is not the one guarded. Asserted at current behaviour on
-    // purpose — the fix belongs in src/Api.ts, not in the test.
-    const response = await putPhoto("", "hi");
-
-    expect(response.status).toBe(404);
     // Nothing was written on the rejected path.
     expect(harness.r2.objects.size).toBe(0);
     expect(harness.d1.photos.size).toBe(0);
@@ -866,17 +863,15 @@ describe("GET /stats", () => {
 /* defects the fakes expose                                            */
 /* ------------------------------------------------------------------ */
 
-describe("recorded behaviour worth fixing in src/Api.ts", () => {
-  it("PUT stores body.length (UTF-16 code units), not the UTF-8 byte count", async () => {
-    // "é" is one UTF-16 code unit but two UTF-8 bytes, which is what R2 stores.
-    // The D1 row (and the queue event derived from it) say 1, so `bytes` drifts
-    // from reality for any non-ASCII body. Asserted as-is: the fix belongs in
-    // src/Api.ts (use TextEncoder#encode(body).byteLength), not in the fake.
+describe("byte accounting", () => {
+  it("records UTF-8 byte length, matching what R2 actually stores", async () => {
+    // "é" is one UTF-16 code unit but two UTF-8 bytes.
     const response = await putPhoto("utf8", "é");
     expect(response.status).toBe(201);
 
     const stored = await harness.r2.get("utf8");
-    expect(stored?.size).toBe(2); // the truth, from R2's own view of the object
-    expect(harness.d1.photos.get("utf8")?.bytes).toBe(1); // what the Worker recorded
+    expect(stored?.size).toBe(2);
+    expect(harness.d1.photos.get("utf8")?.bytes).toBe(2);
+    expect(harness.queue.sent.at(-1)).toMatchObject({ bytes: 2 });
   });
 });
