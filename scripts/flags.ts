@@ -43,3 +43,20 @@ export const readNumberFlag = (
   const value = raw === undefined ? Number.NaN : Number(raw);
   return Number.isFinite(value) && value > 0 ? value : Number.NaN;
 };
+
+/**
+ * A **non-negative**-number flag (`>= 0`): same contract as {@link readNumberFlag},
+ * but `0` is a valid value — for tolerances whose documented default is `0`
+ * (e.g. `--max` on `scripts/queue-health.ts`). `readNumberFlag` rejects `0`, so it
+ * cannot express that default.
+ */
+export const readNonNegativeNumberFlag = (
+  argv: ReadonlyArray<string>,
+  name: string,
+  fallback: number,
+): number => {
+  if (!argv.includes(`--${name}`)) return fallback;
+  const raw = readFlag(argv, name);
+  const value = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : Number.NaN;
+};

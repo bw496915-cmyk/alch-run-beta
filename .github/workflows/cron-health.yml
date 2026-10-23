@@ -63,6 +63,5 @@ jobs:
       # invariant that fails loudly — see AUDIT-2026-10-23-ground-truth.md.
       - name: Assert the dead-letter queue is empty
         if: steps.creds.outputs.proceed == 'true'
+        # The account id and token come from the job-level env.
         run: node scripts/queue-health.ts
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}

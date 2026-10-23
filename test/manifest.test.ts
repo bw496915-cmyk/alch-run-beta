@@ -55,7 +55,7 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
  * queue-redelivery case. Raise it deliberately when adding tests; lowering it is
  * the review gate.
  */
-const MIN_TESTS = 72;
+const MIN_TESTS = 74;
 
 /** A suite's own declarations: two-space `it(` / `test(` at the start of a line. */
 const DECLARED_TEST = /^ {2}(?:it|test)\(/gm;

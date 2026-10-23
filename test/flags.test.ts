@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readFlag, readNumberFlag } from "../scripts/flags.ts";
+import { readFlag, readNonNegativeNumberFlag, readNumberFlag } from "../scripts/flags.ts";
 
 /**
  * The scripts' flag parsing, tested once so the two copies cannot drift again.
@@ -48,5 +48,19 @@ describe("readNumberFlag", () => {
     expect(
       Number.isNaN(readNumberFlag(["--window-hours", "--max-age-hours", "5"], "window-hours", 48)),
     ).toBe(true);
+  });
+});
+
+describe("readNonNegativeNumberFlag", () => {
+  it("accepts 0 (the default some flags document) and positive numbers", () => {
+    expect(readNonNegativeNumberFlag(["--max", "0"], "max", 0)).toBe(0);
+    expect(readNonNegativeNumberFlag(["--max", "3"], "max", 9)).toBe(3);
+  });
+
+  it("falls back when absent, and is NaN for a negative or unusable value", () => {
+    expect(readNonNegativeNumberFlag([], "max", 7)).toBe(7);
+    expect(Number.isNaN(readNonNegativeNumberFlag(["--max", "-1"], "max", 0))).toBe(true);
+    expect(Number.isNaN(readNonNegativeNumberFlag(["--max", "abc"], "max", 0))).toBe(true);
+    expect(Number.isNaN(readNonNegativeNumberFlag(["--max"], "max", 0))).toBe(true);
   });
 });

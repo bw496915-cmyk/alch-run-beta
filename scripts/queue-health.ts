@@ -16,14 +16,15 @@
  * Exit codes: 0 empty, 1 messages parked, 2 misconfigured or unreachable.
  */
 
-import { readFlag, readNumberFlag } from "./flags.ts";
+import { readFlag, readNonNegativeNumberFlag } from "./flags.ts";
 import { verdictFor, type QueueVerdict } from "./queue-health-logic.ts";
 
 const argv = process.argv.slice(2);
 const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID ?? "7a470541a704caaf91e71efccc78fd36";
 const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const MATCH = readFlag(argv, "queue", "auditdeadletter") ?? "auditdeadletter";
-const MAX = readNumberFlag(argv, "max", 0);
+// `0` is the default and a valid value, so this is the non-negative parser.
+const MAX = readNonNegativeNumberFlag(argv, "max", 0);
 
 if (!TOKEN) {
   console.error("CLOUDFLARE_API_TOKEN is not set");
@@ -62,6 +63,10 @@ interface Queue {
 }
 
 const queues = await api<Queue[]>("/queues");
+if (!Array.isArray(queues)) {
+  console.error(`/queues returned a non-array result`);
+  process.exit(2);
+}
 const matched = queues.filter((q) => q.queue_name.includes(MATCH));
 if (matched.length === 0) {
   console.error(`no queue matches "${MATCH}" (have: ${queues.map((q) => q.queue_name).join(", ")})`);
