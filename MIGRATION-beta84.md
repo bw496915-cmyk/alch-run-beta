@@ -290,10 +290,16 @@ If you find the proxy serving a commit sha later but npm still lags, that URL fo
 sanctioned install path — swap it into `package.json` as an exact URL dependency, then
 re-run `pnpm typecheck` before trusting it.
 
-## Post errata (the post's own inconsistencies)
+## Post and docs errata (upstream inconsistencies)
 
-Recorded so our citations do not propagate them. Both are upstream — not ours to fix here.
+Recorded so our citations do not propagate them. All are upstream — not ours to fix here.
 
+- **The current docs disagree with each other about the import.** alchemy's repo `README` imports
+  `@alchemy.run/cloudflare` (the split), while the `getting-started` page still imports
+  `alchemy/Cloudflare` (the pre-split path). Read against this tree that is corroboration, not a
+  surprise: the split is current and the docs lag in places. The same `getting-started` page also
+  shows `state: Cloudflare.state()` **with no arguments** — matching this repo's claim that the
+  named `{ workerName }` form is beta.84-era, not beta.83 (see §"State store commands").
 - **Service counts disagree.** The binding-coverage paragraphs say "~2,850 AWS bindings
   across **205 services**" and "192 GCP bindings across **57 services**"; the distilled
   import table says AWS has **438 services** and GCP **318**. If the two sets measure

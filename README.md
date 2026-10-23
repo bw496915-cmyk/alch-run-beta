@@ -1,12 +1,20 @@
 # alch-run-beta
 
-An Alchemy project pinned to **`alchemy@2.0.0-beta.83`** — beta.84 is announced but not
-installable, and its post is served only from the preview host (see
-[Why beta.83](#why-beta83-not-beta84)).
+**A consumer Alchemy + Cloudflare project**: one async Worker over five Cloudflare services,
+declared in `alchemy.run.ts` and deployed to a real account. Pinned to **`alchemy@2.0.0-beta.83`**
+(beta.84 is announced but not installable — see [Why beta.83](#why-beta83-not-beta84)).
 
-One Worker over four Cloudflare services — R2 (bodies), D1 (metadata + audit), KV (cached
-index), Durable Object (counters) — plus a queue consumer (with a dead-letter queue) and a cron
-handler. Deployed to a real account.
+One Worker over five Cloudflare services — R2 (bodies), D1 (metadata + audit), KV (cached index), a
+Durable Object (counters), and a Queue with a dead-letter queue — plus a daily cron handler.
+
+**New here?** Read [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) first (what this tree is, what
+was fixed, what is still missing); the evidence is in [AUDIT-2026-10-23.md](./AUDIT-2026-10-23.md),
+the shape policy in [CONVENTIONS.md](./CONVENTIONS.md), and the beta.84 path in
+[UPGRADE.md](./UPGRADE.md). Otherwise, read on.
+
+[Layout](#layout) · [The API](#the-api) · [Live deployment](#live-deployment) · [Commands](#commands)
+· [Testing](#testing) · [CI](#ci) · [Credentials](#credentials) · [Verified](#verified) · [Pinned
+versions](#pinned-versions) · [Agents](#working-with-an-ai-coding-agent) · [License](#license)
 
 ## Layout
 
@@ -285,3 +293,21 @@ signal table and the package-split diff: [MIGRATION-beta84.md](./MIGRATION-beta8
 npm view alchemy dist-tags
 npm view @alchemy.run/cloudflare versions   # expect a real version, not just 0.0.0
 ```
+
+## Working with an AI coding agent
+
+[`AGENTS.md`](./AGENTS.md) is the agent entry point, and
+[`.agents/skills/alch-run-beta/SKILL.md`](./.agents/skills/alch-run-beta/SKILL.md) is the same
+orientation wired as an OpenCode skill. [`CONVENTIONS.md`](./CONVENTIONS.md) is binding. Paste this
+to start:
+
+```text
+You are working in alch-run-beta — a consumer Alchemy + Cloudflare project pinned to
+alchemy@2.0.0-beta.83. Read AGENTS.md, .agents/skills/alch-run-beta/SKILL.md and CONVENTIONS.md
+first. Keep changes consistent with the pinned shapes; run `pnpm typecheck`, `pnpm test` and
+`actionlint` before proposing a commit; ask before adding a dependency or changing the shape policy.
+```
+
+## License
+
+[Apache-2.0](./LICENSE).
