@@ -16,9 +16,10 @@ import Stack from "../alchemy.run.ts";
  *
  * Deliberately **not** part of `pnpm test`: that suite is offline by
  * construction, and `test/` is exactly what `test/manifest.test.ts` guards. This
- * lives in `e2e/` and runs only via `pnpm test:e2e` (`vitest.e2e.config.ts`),
- * which needs a live account — `CLOUDFLARE_API_TOKEN` and `ADMIN_TOKEN`, as CI
- * provides them.
+ * lives in `e2e/` and runs only via `pnpm test:e2e` (`vitest.e2e.config.ts`) —
+ * and, in CI, `.github/workflows/e2e.yml`, which pins a `test_<pr>` stage. Both
+ * need a live account — `CLOUDFLARE_API_TOKEN` and `ADMIN_TOKEN`, as CI provides
+ * them.
  *
  * Retention: `Db`/`Photos` retain only on a non-`test_` stage, so this suite's
  * `destroy` really removes everything it created.

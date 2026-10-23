@@ -1,0 +1,86 @@
+name: e2e
+
+# The deployed-stack suite (`pnpm test:e2e`). This is the ONE workflow that
+# applies instead of planning: ci.yml deliberately bans `deploy` so a real stage
+# is only ever changed by a reviewed, human-run command — a rule this job keeps,
+# because it never touches a real stage. It deploys a throwaway `test_*` stage,
+# drives the live Worker, and destroys it.
+#
+# The stage MUST start with `test_`: `Db`/`Photos` retain on every other stage
+# (src/Db.ts), so a non-`test_` name here would leak a D1 database and R2 bucket
+# on every run. It is per-ref so parallel PRs never share a Worker.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: "11.28.5"
+  NODE_VERSION: "24"
+
+jobs:
+  deployed:
+    name: deploy, assert, destroy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || '7a470541a704caaf91e71efccc78fd36' }}
+      # Deploying the Stack resolves Config.Redacted("ADMIN_TOKEN").
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      # `test_<pr>` (or `test_<run_id>` off a PR) — isolated, and destroyed.
+      ALCHEMY_TEST_STAGE: test_${{ github.event.pull_request.number || github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # A `secrets.*` expression cannot appear in `if:` (GitHub rejects it), so
+      # presence is tested here and exported as an output the steps gate on —
+      # same shape as ci.yml. Forks have no secrets, so this skips with a notice
+      # rather than failing.
+      - name: Check for credentials
+        id: creds
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CLOUDFLARE_API_TOKEN/ADMIN_TOKEN secret; skipping the deployed-stack suite."
+          fi
+
+      - name: Install dependencies
+        if: steps.creds.outputs.proceed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Deploys, drives /health + the admin gate over the live URL, destroys.
+      - name: Deploy, assert, destroy
+        if: steps.creds.outputs.proceed == 'true'
+        run: pnpm test:e2e
+
+      # Belt and braces: the suite destroys in afterAll, but a killed worker
+      # skips it. This re-runs the destroy by stage so a failure cannot leak
+      # cloud resources. `output` cannot be deleted independently, so a stage
+      # with nothing left is fine to destroy again.
+      - name: Destroy the test stage
+        if: always() && steps.creds.outputs.proceed == 'true'
+        continue-on-error: true
+        run: pnpm exec alchemy destroy --stage "$ALCHEMY_TEST_STAGE" --yes

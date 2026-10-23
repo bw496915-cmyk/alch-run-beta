@@ -29,7 +29,9 @@ tests is a visible edit there.
 
 A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage,
 drives the live Worker, and destroys it. It needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`)
-and is deliberately outside `test/` so the offline gate stays offline.
+and is deliberately outside `test/` so the offline gate stays offline. CI runs it in
+`.github/workflows/e2e.yml` on `test_<pr>` — the one workflow that applies, and only to a throwaway
+stage that starts with `test_` (anything else is retained by `Db`/`Photos`).
 
 ## Ground rules
 

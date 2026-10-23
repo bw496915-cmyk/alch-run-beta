@@ -50,7 +50,8 @@ pnpm cron-health                          # delivered-vs-configured cron (needs 
 ```
 
 A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage
-and destroys it — it needs an account, so it is not part of the offline gate.
+and destroys it — it needs an account, so it is not part of the offline gate. CI runs it in
+`.github/workflows/e2e.yml` on an isolated `test_<pr>` stage, the one workflow that applies.
 
 `test/manifest.test.ts` holds a **test-count floor** (currently 74) and the exact suite set —
 adding tests means raising `MIN_TESTS` in the same diff; removing is the review gate.

@@ -191,7 +191,8 @@ cannot reach. It uses `alchemy/Test/Vitest` (`Test.make`) to deploy this Stack t
 (`getWhenReady` rides out the `workers.dev` cold-start window), and destroys. It lives outside
 `test/` so the offline gate and `test/manifest.test.ts` stay exactly as they are, and it needs a
 real account. `Db`/`Photos` retain only on a non-`test_` stage, so that suite's `destroy` leaves
-nothing behind.
+nothing behind. CI runs it in `.github/workflows/e2e.yml` on an isolated `test_<pr>` stage — the one
+workflow that applies, and only ever to a stage that gets destroyed.
 
 ## CI
 
@@ -204,6 +205,17 @@ nothing behind.
 rejects `secrets.*` inside `if:`, so the check happens in a step and a push without the secret
 skips with a notice. `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_STAGE` come from repo variables with
 documented defaults.
+
+One workflow **does** apply, deliberately narrow (`.github/workflows/e2e.yml`):
+
+| Job | When | What |
+| --- | --- | --- |
+| `deployed` | push / PR to `main`, or manual | `pnpm test:e2e` — deploys a throwaway `test_<pr>` stage to the account, drives the live Worker, and destroys it. It never touches a real stage, so `plan`'s "applying stays a human decision" still holds for every real one |
+
+The stage **must** start with `test_` — `Db`/`Photos` retain on every other stage (`src/Db.ts`), so
+any other name would leak a database and a bucket per run. `e2e.yml` pins `test_<pr>` (or
+`test_<run_id>` off a PR) and re-runs the destroy in an `always()` step, so a killed test worker
+cannot leak.
 
 ## Credentials
 
