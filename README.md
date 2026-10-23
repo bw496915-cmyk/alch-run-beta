@@ -39,7 +39,7 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `GET /health` | — | `{ ok, time }` |
 | `GET /stats` | DO + D1 | **Admin-gated.** DO counter + audit-row count, each read independently (`degraded: true` if one fails) |
 | `GET /audit` | D1 | **Admin-gated.** Rows written by the `queue()` handler |
-| `GET /photos` | KV → D1 | Cached index; `x-cache: hit` from KV, `miss` from D1 + refill |
+| `GET /photos` | KV → D1 | Cached index, **60 s TTL**; `x-cache: hit` from KV (cold after 60 s or isolate churn), `miss` from D1 + refill |
 | `GET /photos/:key` | R2 + D1 | Body from R2, content-type/created-at from the D1 row |
 | `PUT /photos/:key` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
 | `DELETE /photos/:key` | R2 + D1 + KV | Removes object + row, busts cache |
@@ -78,11 +78,12 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | Worker | `alchrunbeta-api-deep-pass-6cjaiopzcff6bixa` · <https://alchrunbeta-api-deep-pass-6cjaiopzcff6bixa.utahj4754.workers.dev> | `/health` answers; `/stats` + `/audit` are admin-gated (401 without the token) |
 | R2 bucket | `alchrunbeta-photos-deep-pass-bqzyydt4zuytxvh3` | `GET /photos/:key` serves a body a `PUT` wrote |
 | D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | both migrations applied; `audit_events` holds consumer-written rows |
-| KV namespace | `2430e2e45a8544568114b1c098146c42` | second `GET /photos` returns `x-cache: hit` |
+| KV namespace | `2430e2e45a8544568114b1c098146c42` | a second `GET /photos` **within 60 s** returns `x-cache: hit`; cold otherwise (the KV TTL, verified: the namespace is empty between bursts) |
 | Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` | an audit row appears that no request wrote |
-| Dead-letter queue | `alchrunbeta-auditdeadletter-deep-pass-tee5ns7ofvt6mr5r` | the consumer's `deadLetterQueue` — an event that exhausts its 3 retries lands here instead of being dropped |
+| Dead-letter queue | `alchrunbeta-auditdeadletter-deep-pass-tee5ns7ofvt6mr5r` | the consumer's `deadLetterQueue` — an event that exhausts its 3 retries lands here instead of being dropped. **It has no consumer, so nothing drains or alerts it**; verified by pushing a malformed message (`backlog_count: 2`, `consumers: []`). Draining/alerting it is an open follow-up |
 | Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | counter increments across calls and survives eviction (`3`→`4`) |
 | Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
+| Runtime compat | `compatibility_date: 2026-08-31`, `compatibility_flags: ["new_module_registry"]` | shipped on the version (`GET …/services/{name}/environments/production`) — recorded here because the docs never named it |
 
 Two live caveats, neither green yet:
 

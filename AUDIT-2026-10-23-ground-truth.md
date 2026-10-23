@@ -36,18 +36,19 @@ Worker, a clean-room `deploy`/`destroy` on a throwaway stage, the pinned package
 | Admin gate | black-box HTTP | 401 / 200 ✅ |
 | Degrade-to-503 / partial `degraded` | — | **unit-proven only**; not forced live (breaking the D1 binding needs a separate stage) ⚠️ |
 
-## 3. Minimal repros (to file upstream)
+## 3. Minimal repros (filed upstream)
 
-1. **Docs endpoint mismatch.** `GET /accounts/{acct}/workers/scripts/{name}/versions/{id}` returns
+1. **Docs endpoint mismatch** — filed: <https://github.com/alchemy-run/alchemy/issues/2463>.
+   `GET /accounts/{acct}/workers/scripts/{name}/versions/{id}` returns
    a script resource with **no `exports`**; the export map is at
    `GET /accounts/{acct}/workers/services/{name}/environments/{env}` → `script.exports`.
-   Repro: the two GETs, diff the `resources.script` keys. → alchemy docs / `Worker.d.ts`.
-2. **A DLQ with no consumer is a silent sink.** `Queues.Consumer` accepts `deadLetterQueue` but
-   the DLQ has no consumer, no alert, and a 4-day retention — a poison event is functionally
-   dropped after 4 days with no signal. Repro: `backlog_count` grows while `consumers: []`.
+2. **A DLQ with no consumer is a silent sink** — filed:
+   <https://github.com/alchemy-run/alchemy/issues/2464>. `Queues.Consumer` accepts
+   `deadLetterQueue` but the DLQ has no consumer, no alert, and a 4-day retention — a poison event
+   is functionally dropped after 4 days with no signal.
 3. **`expirationTtl: 60` makes the index cache effectively always cold** across isolate churn; the
-   README's "second call → `x-cache: hit`" is a within-60 s claim. Repro: two `GET /photos` more
-   than 60 s apart → `source: d1`.
+   README's "second call → `x-cache: hit`" is a within-60 s claim (repo-side, corrected in the
+   README — not an upstream defect).
 
 ## 4. Cost / latency / limits (from the platform)
 
