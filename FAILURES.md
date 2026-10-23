@@ -5,6 +5,24 @@ Each row ends with the file that now prevents a repeat. Two failures are unanswe
 that way here: the Durable Object `1101`, and the cron whose "never fires" verdict turned out to
 be our own measurement window.
 
+## One class, four instances
+
+Four of the failures recorded in this project — two in the table below, one in the review, one in
+the rules — share the same mistake: **a silent failure read as success.**
+
+| Instance | Where it is recorded | What was read as success |
+| --- | --- | --- |
+| The cron window | row 8 | ten minutes of silence, reported as "never fires" |
+| The no-op deploy | [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §7 | `Done: 0 succeeded`, read as "the fix shipped" |
+| The silent `curl -o` | row 10 | a zero exit status, read as a fetched file |
+| The `/tmp` backup | rule 11's corollary | a copy that did not exist, read as a revert path |
+
+Each reads as complete because the failing step did not say it had failed. Rule 4 verifies the
+effect of an attachment; rule 14 generalizes it — **any operation whose failure would be silent
+must be confirmed by its artifact**, whether that is a cron invocation, a resource diff, a file,
+or a read-back. `pnpm preflight` applies that standard to the environment before the first write,
+and `test/manifest.test.ts` applies it to the suite itself.
+
 ## Environment failures
 
 | # | Failure | Symptom | Cause | Status | Baked in |
@@ -84,7 +102,10 @@ incident hours later.
     step is never retried as a network error or a bad command. Corollary: revert a mutation of a
     tracked file with `git checkout -- <file>` (or `git stash` when unrelated edits must survive),
     never a copy parked in `/tmp`; `/tmp` is not durable evidence, and the backup that "exists" in
-    a read-only session is the same silent failure this rule is about.
+    a read-only session is the same silent failure this rule is about. Commit intended edits before
+    mutating a file: `git checkout -- <file>` restores the *whole* file, so an uncommitted edit goes
+    with the mutation — which is how the first pass at this very rule discarded the limits block it
+    had just added to `test/docs.test.ts`.
 12. Never cite an issue as "closed" without its `state_reason` **and** the PR or commit that closed it:
     fixed, duplicate and wontfix all render as `state: closed`, and only one of them lets a
     workaround expire. **Enforced by `test/docs.test.ts`** — the workaround table's closure and

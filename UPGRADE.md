@@ -26,7 +26,25 @@ has to move with it (`alchemy/Cloudflare` → `@alchemy.run/cloudflare`).
 4. Re-check the workarounds with expiry conditions in `CONVENTIONS.md`. The first one expires
    with this upgrade: [#2235](https://github.com/alchemy-run/alchemy/issues/2235)
    (`versionId` / `deploymentId` outputs) was fixed by PR #2241 merged 2026-10-20 and ships in
-   beta.84 — so on the new pin, re-add both outputs and assert they are defined.
+   beta.84 — so on the new pin, re-add both outputs and assert they are **defined in the deploy
+   output**, not merely on the type. `test/docs.test.ts` fails until the outputs are back; the
+   deploy output itself is the artifact that settles it:
+
+   ```bash
+   STAGE=${ALCHEMY_STAGE:-deep-pass}
+   node -e '
+     const fs = require("node:fs");
+     const p = `.alchemy/state/AlchRunBeta/${process.env.STAGE}/__stack_output__.json`;
+     const out = JSON.parse(fs.readFileSync(p, "utf8"));
+     for (const key of ["versionId", "deploymentId"]) {
+       if (!out[key]) {
+         console.error(`${key} missing from ${p} — #2235 is not fixed in this pin`);
+         process.exit(1);
+       }
+       console.log(`${key} ${out[key]}`);
+     }
+   '
+   ```
 
 ## Verify, don't assume
 

@@ -48,10 +48,11 @@ const EXPECTED_SUITES: ReadonlyArray<string> = [
 
 /**
  * The floor, not the current count: 54 when this file landed (41 + preflight's
- * 5 + the four envelope cases + these three). Raise it deliberately when adding
+ * 5 + the five envelope cases + these three), raised to 55 with the
+ * pin/workaround guard in `docs.test.ts`. Raise it deliberately when adding
  * tests; lowering it is the review gate.
  */
-const MIN_TESTS = 54;
+const MIN_TESTS = 55;
 
 /** A suite's own declarations: two-space `it(` / `test(` at the start of a line. */
 const DECLARED_TEST = /^ {2}(?:it|test)\(/gm;

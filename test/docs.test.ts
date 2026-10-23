@@ -145,4 +145,55 @@ describe("documentation rules", () => {
       expect(DOCS, `${required} is missing`).toContain(required);
     }
   });
+
+  /**
+   * The pin and the #2235 workaround move together, so the expiry in
+   * `CONVENTIONS.md` is not a paragraph someone has to remember:
+   *
+   *   - the pin may not drop below `2.0.0-beta.82`, the release that moved
+   *     Durable Objects onto the declarative `exports` map (#2135) — a pre-beta.82
+   *     pin fails its first redeploy, and Cloudflare does not allow going back
+   *     (MIGRATION-beta84.md §One-way door);
+   *   - while the pin is below beta.84, `versionId`/`deploymentId` must stay out
+   *     of the outputs (they are `undefined` on a non-versioned deploy, which is
+   *     how #2235 hid: the type carried both fields);
+   *   - the moment the pin reaches a release expected to carry #2241, this test
+   *     fails and *is* the instruction: confirm the changelog, re-add both
+   *     outputs, and assert them in the deploy output.
+   *
+   * Honest limit: offline this can only assert that the outputs are *declared*.
+   * "Defined" needs a real deploy — `__stack_output__.json` after `pnpm deploy`,
+   * which UPGRADE.md step 4 reads.
+   */
+  it("keeps the pin above the exports-era floor and the versionId workaround in step with it", () => {
+    const pkg = JSON.parse(read("package.json")) as { dependencies?: Record<string, string> };
+    const pin = pkg.dependencies?.alchemy ?? "";
+    const match = /^2\.0\.0-beta\.(\d+)$/.exec(pin);
+    expect(match, `alchemy pin "${pin}" is not a 2.0.0-beta.N release`).not.toBeNull();
+    const beta = Number(match?.[1] ?? "0");
+    const stack = read("alchemy.run.ts");
+
+    expect(beta, "pin is below the exports-era floor, alchemy@2.0.0-beta.82").toBeGreaterThanOrEqual(82);
+
+    // Property syntax only: the comment in alchemy.run.ts names both fields and
+    // must not count as having surfaced them.
+    const surfaced = /(?:versionId|deploymentId)\s*:/.test(stack);
+
+    if (beta < 84) {
+      expect(
+        surfaced,
+        "pin is below beta.84; versionId/deploymentId must stay out of the outputs — " +
+          "on this pin they are undefined, which is #2235 (CONVENTIONS.md workarounds)",
+      ).toBe(false);
+    } else {
+      expect(
+        surfaced,
+        "pin is ≥ beta.84: confirm the changelog lists #2241, re-add versionId and " +
+          "deploymentId to the stack outputs, and assert they are DEFINED in " +
+          "__stack_output__.json after deploy — not merely present on the type",
+      ).toBe(true);
+      expect(stack, "versionId output is missing").toMatch(/versionId\s*:/);
+      expect(stack, "deploymentId output is missing").toMatch(/deploymentId\s*:/);
+    }
+  });
 });

@@ -16,7 +16,7 @@ migrations/               0001_init.sql (photos), 0002_audit.sql (audit_events)
 src/Api.ts                Worker runtime: fetch + queue + scheduled handlers, Counter DO class
 src/Photos.ts             R2 bucket        src/Db.ts        D1 database + migrations
 src/Cache.ts              KV namespace     src/QueueEvents.ts  Queue + its Consumer
-test/api.test.ts          offline Vitest suite, every binding faked in memory
+test/                     six suites: api, cron-health, docs, manifest, policy, preflight
 scripts/preflight.ts      session preflight: probes scratch space, reports degraded
 vitest.config.ts          pins the suite to test/**/*.test.ts
 .github/workflows/ci.yml  verify (typecheck + tests), plus a gated plan-only job
@@ -107,7 +107,7 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 26 offline tests, no account, no network |
+| `pnpm test` | `vitest run` — 55 offline tests in six suites, no account, no network |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -135,6 +135,11 @@ boundary, where the runtime supplies the rest.
 `cloudflare:workers` is aliased in `vitest.config.ts` to `test/stubs/cloudflare-workers.ts` —
 Node cannot resolve the Workers runtime module, while type-checking still uses the real
 declaration from `@cloudflare/workers-types`.
+
+The suite also guards itself: `test/manifest.test.ts` requires the expected suite set exactly and
+keeps the declared test count at or above a floor, so deleting a suite or its tests is a failing
+diff rather than one fewer green check (its limits — declarations, not executions — are stated in
+the file). `test/docs.test.ts` records what it cannot see next to the test that cannot see it.
 
 Covered: every route above, the cache miss→hit pair (asserting a hit never reaches D1),
 `queue()` ack/retry/drain-after-failure, `scheduled()` bumping the DO and writing `cron.fire`,
@@ -204,7 +209,7 @@ not a quiet pass.
 | `alchemy plan` after deploy → all `noop` | — | ✅ rev 1 only; **unknown** after rev 2 |
 | `pnpm typecheck` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) | — |
 | policy gates (`CONVENTIONS.md`) | 0 hand-written interfaces, 0 URL-string RPC, 0 handlers without `ctx` | — |
-| `pnpm test` | 26/26, offline | — |
+| `pnpm test` | 55/55 in six suites, offline | — |
 
 Two runtime behaviours worth knowing:
 
@@ -229,6 +234,12 @@ this tree avoids importing those types (it calls `Alchemy.localState()`).
 | `typescript` / `vitest` | `5.9.3` / `5.0.5` (dev) |
 | `@types/node` | `24.19.2` |
 | `workerd` (transitive) | `1.20261002.1` |
+
+**Floor: `alchemy@2.0.0-beta.82`.** That release opened the Durable Object `exports` deploy flow
+(#2135), and Cloudflare does not allow a Worker back onto the legacy `migrations` flow, so a
+pre-beta.82 pin fails its first redeploy (see `MIGRATION-beta84.md` §"One-way door"). This pin,
+beta.83, is above the floor; `test/docs.test.ts` asserts the floor and keeps the `versionId`
+workaround in step with the pin.
 
 `pnpm-workspace.yaml` sets `allowBuilds: { workerd: true }` and `verifyDepsBeforeRun: false`.
 pnpm 11 **removed** `onlyBuiltDependencies` (silently ignored) and defaults `strictDepBuilds` to

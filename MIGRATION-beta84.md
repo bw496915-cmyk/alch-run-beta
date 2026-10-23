@@ -177,7 +177,8 @@ Two operational rules that come with it, the second of which the beta.84 notes d
 - **The first deploy after an upgrade must go out at 100% traffic.** Under gradual deployment,
   remove `version.traffic` for that one deploy; otherwise it fails with
   `WorkerVersionConfigError`. Previews still use `migrations`, so a preview Worker is not a
-  probe for this behaviour.
+  probe for this behaviour. This is a property of the export-era deploy flow, not of one
+  release: `FAILURES.md` rule 15 makes it a standing rule for every future pin bump.
 
 ### Also available on beta.83 and currently unused
 

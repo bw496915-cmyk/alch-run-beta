@@ -104,6 +104,13 @@ const ALLOWED_DECLARATIONS: Record<string, string> = {
   PhotoEvent: "our queue message body",
 };
 
+/**
+ * Source with comments removed, so a doc comment that *names* a forbidden form
+ * is not mistaken for the form itself.
+ */
+const codeOnly = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
 /* ------------------------------------------------------------------ */
 /* layer 1: behavioural greps                                          */
 /* ------------------------------------------------------------------ */
@@ -146,11 +153,23 @@ describe("policy: exact Alchemy shape only", () => {
     expect(own("recordCronFire")).toBe(true);
     expect(own("snapshot")).toBe(true);
     expect(own("fetch"), "a URL-dispatch fetch router came back").toBe(false);
+
+    // The generic is what types `getByName(...).increment()`: without it the
+    // namespace falls back to `Shape = any` and the RPC is untyped without ever
+    // failing layer 3, so the binding shape is asserted rather than assumed.
+    expect(readFileSync("alchemy.run.ts", "utf8")).toContain("DurableObject<Counter>(");
   });
 
   it("types env from the bindings, not from a local interface", () => {
     const stack = readFileSync("alchemy.run.ts", "utf8");
     expect(stack).toContain("Cloudflare.InferEnv<typeof bindings>");
+    // Applying InferEnv to the Worker itself hits TS2589 once a DO binding is
+    // present (the DurableObjectLike default `Shape = any` recurses). That
+    // narrower input is the documented workaround (CONVENTIONS.md §Gates), so a
+    // diff "restoring" the Worker form fails here instead of shipping. Comments
+    // are stripped first: the file *explains* the workaround in prose, and that
+    // prose must not count as the code.
+    expect(codeOnly(stack)).not.toMatch(/InferEnv<typeof (Api|worker)>/);
 
     const worker = readFileSync("src/Api.ts", "utf8");
     expect(worker).toContain('import type { ApiEnv } from "../alchemy.run.ts"');

@@ -9,6 +9,9 @@ a URL-string RPC into a Durable Object, a non-atomic read-modify-write on DO sto
 shell wrapper around a command the CLI already has.
 
 Pinned: `alchemy@2.0.0-beta.83`, `effect@4.0.6`, `@cloudflare/workers-types@5.20261022.1`.
+Floor: **`alchemy@2.0.0-beta.82`** — that release moved Durable Objects onto the declarative
+`exports` deploy flow (#2135) and Cloudflare does not allow going back, so a pre-beta.82 pin fails
+its first redeploy (`MIGRATION-beta84.md` §"One-way door"; asserted by `test/docs.test.ts`).
 
 > **Correction (2026-10-23, after the shape audit in `REVIEW-2026-10-23.md` §5).** An earlier
 > draft of this file denied the async-worker shapes — the `crons` prop, a plain
@@ -61,7 +64,7 @@ must carry a verified closure (`state_reason` plus the PR/commit) and a concrete
 
 | Workaround | Upstream issue | Closure (verified, not assumed) | Expires when |
 | --- | --- | --- | --- |
-| `alchemy.run.ts` does **not** surface `versionId` / `deploymentId` in the stack outputs | [#2235](https://github.com/alchemy-run/alchemy/issues/2235) "Full Worker deployments return no versionId or deploymentId", filed 2026-10-13 against `alchemy@2.0.0-beta.83` | **fixed**, not duplicate/wontfix: `state_reason: completed`, closed 2026-10-20 by sam-goodwin via merged PR [#2241](https://github.com/alchemy-run/alchemy/pull/2241) *fix(cloudflare): return full deployment identities* (merge commit `68a04c07f4`, merged into `main` 2026-10-20T07:57Z) | the pin reaches a release whose changelog lists **#2241** — expected **beta.84**, unpublished as of 2026-10-23, whose notes already say "a full Worker deploy returns its versionId and deploymentId (#2241)". Then delete the workaround, re-add both outputs, and assert they are **defined in the deploy output**, not merely present on the type: the type carried both fields while the create/update path never set them, which is exactly why this bug hid |
+| `alchemy.run.ts` does **not** surface `versionId` / `deploymentId` in the stack outputs | [#2235](https://github.com/alchemy-run/alchemy/issues/2235) "Full Worker deployments return no versionId or deploymentId", filed 2026-10-13 against `alchemy@2.0.0-beta.83` | **fixed**, not duplicate/wontfix: `state_reason: completed`, closed 2026-10-20 by sam-goodwin via merged PR [#2241](https://github.com/alchemy-run/alchemy/pull/2241) *fix(cloudflare): return full deployment identities* (merge commit `68a04c07f4`, merged into `main` 2026-10-20T07:57Z) | the pin reaches a release whose changelog lists **#2241** — expected **beta.84**, unpublished as of 2026-10-23, whose notes already say "a full Worker deploy returns its versionId and deploymentId (#2241)". Then delete the workaround, re-add both outputs, and assert they are **defined in the deploy output** — read `__stack_output__.json` after `pnpm deploy` (`UPGRADE.md` step 4), not merely present on the type: the type carried both fields while the create/update path never set them, which is exactly why this bug hid. `test/docs.test.ts` fails the moment the pin reaches beta.84, with that instruction in the failure message |
 
 ---
 
