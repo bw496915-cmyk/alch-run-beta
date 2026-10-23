@@ -5,15 +5,16 @@ import { describe, expect, it } from "vitest";
 import Counter from "../src/Counter.ts";
 
 /**
- * Enforces `CONVENTIONS.md` in three layers, weakest to strongest.
+ * Enforces `CONVENTIONS.md`, in layers, weakest to strongest.
  *
  *   1. Behavioural greps  — cheap, and gameable by renaming.
  *   2. Declaration allow-list — fails on ANY new `interface`/`type` in `src/`,
- *      so a fifth hand-written binding fails even under a new name. The fix is
- *      an allow-list edit, which is a visible, reviewable diff.
- *   3. Type-identity assertions — compile-time. `ApiEnv` members must stay
- *      assignable in BOTH directions with the real platform types, which a
- *      hand-rolled approximation cannot satisfy however it is named.
+ *      so a hand-written binding fails even under a new name. The fix is an
+ *      allow-list edit, which is a visible, reviewable diff.
+ *   3. Shape — **structural** since the Effect-native migration: an Effect-native
+ *      Worker has no `env`, so a hand-written binding type cannot arise (a binding
+ *      is `yield*`ed and hands back the real client). What is still assertable —
+ *      the Durable Object's RPC surface — is checked at its declaration below.
  */
 
 /* ------------------------------------------------------------------ */

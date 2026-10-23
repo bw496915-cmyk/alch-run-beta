@@ -20,11 +20,11 @@ Read, in this order:
 
 ```sh
 ./node_modules/.bin/tsc --noEmit     # pnpm typecheck
-./node_modules/.bin/vitest run       # pnpm test  (74 tests / 8 suites, offline)
+./node_modules/.bin/vitest run       # pnpm test  (42 tests / 8 suites, offline)
 actionlint .github/workflows/*.yml
 ```
 
-`test/manifest.test.ts` keeps the suite set exact and a test-count floor (74): adding a suite or
+`test/manifest.test.ts` keeps the suite set exact and a test-count floor (41): adding a suite or
 tests is a visible edit there.
 
 A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage,

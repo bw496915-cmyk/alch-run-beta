@@ -47,7 +47,7 @@ example, so reverting is not a violation — but nothing here uses them. The pol
 
 ```sh
 ./node_modules/.bin/tsc --noEmit          # types (the repo's `pnpm typecheck` runs the same)
-./node_modules/.bin/vitest run            # 74 tests / 8 suites, offline
+./node_modules/.bin/vitest run            # 42 tests / 8 suites, offline
 actionlint .github/workflows/*.yml        # workflow lint
 pnpm cron-health                          # delivered-vs-configured cron (needs a Cloudflare token)
 ```
@@ -56,7 +56,7 @@ A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys 
 and destroys it — it needs an account, so it is not part of the offline gate. CI runs it in
 `.github/workflows/e2e.yml` on an isolated `test_<pr>` stage, the one workflow that applies.
 
-`test/manifest.test.ts` holds a **test-count floor** (currently 74) and the exact suite set —
+`test/manifest.test.ts` holds a **test-count floor** (currently 41) and the exact suite set —
 adding tests means raising `MIN_TESTS` in the same diff; removing is the review gate.
 
 ## Credentials
