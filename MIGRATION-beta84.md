@@ -20,9 +20,9 @@
 
 | Signal | Finding |
 | --- | --- |
-| `alchemy` `dist-tags.latest` | `2.0.0-beta.83`, published 2026-10-12 — no beta.84 |
+| `alchemy` `dist-tags.latest` | `2.0.0-beta.84` — **published**; registry-checked 2026-10-24. This row previously read `2.0.0-beta.83 … no beta.84`, which was true when written and false since |
 | `@alchemy.run/{aws,cloudflare,domain,gcp,core}` | only `0.0.0` |
-| `@alchemy.run/{aws,cloudflare,core}@0.0.0` | a stale 2025-11-03 prototype depending on **Effect v3** (`cloudflare`: `effect@^3.17`, `aws`: `effect@^3.18`) — NOT the beta.84 package |
+| `@alchemy.run/{aws,cloudflare,github}` | **all three `latest: 2.0.0-beta.84`** — the split is real and in lockstep. `@alchemy.run/core` is the exception: it is **still only `0.0.0`** (the 2025-11-03 prototype), so do not reach for it. Registry-checked 2026-10-24; this row previously grouped all of `{aws,cloudflare,core}` under the stale prototype |
 | `@alchemy.run/{domain,gcp}@0.0.0` | 2026-10-21 publish stubs: 2 files, 669 / 696 bytes |
 | The post's install route (`https://pkg.alchemy.run/<pkg>/2e7fdc5`) | HTTP 404 `{"error":"alchemy@2e7fdc5 not found"}`; `latest` and `2.0.0-beta.84` paths 404 too |
 
@@ -48,13 +48,29 @@ resolve, and if only the scoped packages are there, the core is still beta.83.
 
 ---
 
-## The import rewrite
+## The import rewrite — MEASURED (2026-10-24)
 
 This was **six files** before the Effect-native migration — five one-line swaps, and `src/Api.ts`
-untouched. That is no longer the whole diff: `src/Api.ts` and `src/Counter.ts` are now
-provider-importing files (they talked to an `env` object when this runbook was written), and
-`stacks/github.ts` plus the two suites import providers as well. Re-run the grep at "That is all"
-for the current set instead of trusting the count below.
+untouched. Both halves of that are now wrong, and the measurement replaces the estimate.
+
+With the beta.84 pins installed (`alchemy@2.0.0-beta.84` + `@alchemy.run/cloudflare@2.0.0-beta.84`)
+and **nothing else changed**, `tsc --noEmit` reports **39 errors, 11 of them `TS2307: Cannot find
+module 'alchemy/Cloudflare'`**, across **10 files**: `alchemy.run.ts`, `src/{Api,Cache,Counter,Db,
+Photos,QueueEvents}.ts`, `stacks/github.ts`, `test/api.test.ts`, `e2e/stack.test.ts`. So the swaps
+are **load-bearing, not cosmetic** — the tree does not typecheck without them.
+
+Two specifiers moved, not one:
+
+| Specifier | At beta.84 | Files here |
+|---|---|---|
+| `alchemy/Cloudflare` | → `@alchemy.run/cloudflare` | 10 import lines |
+| `alchemy/GitHub` | → `@alchemy.run/github` | 1 — **absent from the earlier table** |
+
+And these **stay** in `alchemy`, verified by resolving each one against the beta.84 install:
+`alchemy`, `alchemy/RemovalPolicy`, `alchemy/Cli/Format`, `alchemy/Test/Vitest`.
+
+So the real diff is **11 import lines across 10 files**, against the "six files, five swaps" this
+document used to claim. Re-run the grep at "That is all" rather than trusting any count written here.
 
 ### 1. `package.json`
 
