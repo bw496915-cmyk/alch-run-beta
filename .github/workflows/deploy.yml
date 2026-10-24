@@ -4,34 +4,54 @@ name: deploy
 # (`alchemy-run/alchemy@main`): a pull request deploys `staging-<pr>`, the main
 # branch deploys `prod`, and a closed pull request destroys its preview.
 #
-# DISABLED for now — `workflow_dispatch` only. Enabling the real triggers (the
-# block at the bottom) is unsafe until two prerequisites are met:
+# DISABLED — `workflow_dispatch` only. The action deploys and destroys in
+# DIFFERENT workflow runs, so a PR-opened deploy and its PR-closed destroy never
+# share a runner. With `Alchemy.localState()` the destroy run sees no state,
+# plans "0 to delete", and leaks every resource of the preview. The store must
+# be the account-wide `Cloudflare.state()`; that path is prepared behind the
+# `REMOTE_STATE` switch in `alchemy.run.ts` (default local), and the same flag
+# is read by `test/api.test.ts` / `e2e/stack.test.ts`, so a deploy and a destroy
+# can never diverge into two stores.
 #
-#  1. **Remote state.** The action deploys and destroys in DIFFERENT workflow
-#     runs, so a PR-opened deploy and its PR-closed destroy never share a
-#     runner. This stack's store is `Alchemy.localState()`, so the destroy run
-#     would see no state, plan "0 to delete", and leak every resource of the
-#     preview. The stack has to move to `Cloudflare.state()` first, which needs
-#     a one-time `alchemy provider cloudflare bootstrap` (an admin credential,
-#     and it creates a state-store Worker in the account).
+# Enable in this order — every step is required:
 #
-#  2. **`Secrets Store Write`** on the CI token in `stacks/github.ts`.
-#     `Cloudflare.state()` reads its bearer token back through a Secrets Store
-#     binding on every CI run, and *binding* a Secrets Store secret requires
-#     Write — Read only enumerates the store. Today the token has neither.
+#  1. Bootstrap the state store ONCE, from a profile whose credential carries
+#     `Workers Scripts Write` + `Secrets Store Write` (it deploys the
+#     `alchemy-state-store` Worker and creates the account Secrets Store, then
+#     reads the bearer token back through an edge-preview binding):
 #
-# Until then this workflow would fail at the state-store step, so it is not
-# wired to push/PR events. After both prerequisites, add:
+#         alchemy provider cloudflare bootstrap
 #
-#   on:
-#     push:
-#       branches: [main]
-#     pull_request:
-#       types: [opened, reopened, synchronize, closed]
-#     workflow_dispatch:
+#     On the pinned beta.83 that is the only bootstrap form —
+#     `alchemy state bootstrap --backend cloudflare` is beta.84 (see
+#     MIGRATION-beta84.md §"State store commands").
 #
-# `src/Db.ts` / `src/Photos.ts` already treat `staging-*` as ephemeral, so a PR
-# preview destroys cleanly once this is on.
+#  2. Re-mint the CI token WITH `Secrets Store Write`. The permission was added
+#     to `stacks/github.ts`; it takes effect only when the token is recreated,
+#     because `Cloudflare.state()` reads the state-store token back through a
+#     Secrets Store *binding* on every CI run, and binding needs Write — Read
+#     only enumerates the store. From an `admin` profile:
+#
+#         alchemy deploy --config stacks/github.ts --profile admin
+#
+#  3. Select the remote store for THIS job only. Add to the `deploy` job `env`
+#     below, so both the deploy and the destroy run against the shared store
+#     while `e2e.yml` keeps its self-contained local state:
+#
+#         ALCHEMY_REMOTE_STATE: "1"
+#
+#  4. Enable the real triggers by replacing the `on:` block below with:
+#
+#         on:
+#           push:
+#             branches: [main]
+#           pull_request:
+#             types: [opened, reopened, synchronize, closed]
+#           workflow_dispatch:
+#
+# `src/Db.ts` / `src/Photos.ts` already treat `staging-*` as ephemeral
+# (`retain(!stage.startsWith("test_") && !stage.startsWith("staging-"))`), so a
+# PR preview destroys cleanly once this is on.
 on:
   workflow_dispatch:
 

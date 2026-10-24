@@ -220,13 +220,18 @@ cannot leak.
 
 `.github/workflows/deploy.yml` is the **prod + PR-preview** path: it drives the Alchemy root action
 (`alchemy-run/alchemy@main`), which deploys `prod` from `main`, deploys `staging-<pr>` for each pull
-request, and destroys that preview when the PR closes. It is **dispatch-only for now**: the action
-deploys and destroys in *different* workflow runs, so it needs a remote state store first —
-`Cloudflare.state()` plus a one-time `alchemy provider cloudflare bootstrap`, and `Secrets Store
-Write` on the CI token (reading the state-store token back requires a Secrets Store *binding*). With
-`localState()` the PR-close destroy would see no state and leak every preview resource. `Db`/`Photos`
-already treat `staging-*` as ephemeral, so the preview tears down cleanly once it is on; the exact
-trigger block to enable is in the workflow header.
+request, and destroys that preview when the PR is closed. It is **dispatch-only for now**: the action
+deploys and destroys in *different* workflow runs, so it needs a remote state store first. The move
+is prepared behind one switch — `state: REMOTE_STATE ? Cloudflare.state() : Alchemy.localState()` in
+`alchemy.run.ts`, with both harnesses reading the same `REMOTE_STATE` — and it defaults **off**
+(`ALCHEMY_REMOTE_STATE` unset), so `pnpm dev`, `pnpm test:dev` and `pnpm test:e2e` keep their local
+store until the bootstrap exists. `Cloudflare.state()` takes no arguments on this pin. Enabling is
+four ordered steps, all spelled out in the workflow header: (1) `alchemy provider cloudflare
+bootstrap` once, with a credential that has `Workers Scripts Write` + `Secrets Store Write`; (2)
+re-mint the CI token so it carries `Secrets Store Write` (now in `stacks/github.ts`; reading the
+state-store token back requires a Secrets Store *binding*, and binding needs Write); (3) set
+`ALCHEMY_REMOTE_STATE: "1"` on the `deploy` job only; (4) replace the `on:` block. `Db`/`Photos`
+already treat `staging-*` as ephemeral, so the preview tears down cleanly once it is on.
 
 ## Credentials
 

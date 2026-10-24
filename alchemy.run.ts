@@ -9,6 +9,28 @@ import { Photos } from "./src/Photos.ts";
 import { Events } from "./src/QueueEvents.ts";
 
 /**
+ * Remote-state switch — REVIEW-2026-10-23.md §4 #8. The prepared path is
+ * `state: Cloudflare.state()`; it is gated here so the default stays local
+ * until the state store exists.
+ *
+ * `Cloudflare.state()` (no arguments on this pin) reads the account-wide
+ * `alchemy-state-store` Worker, which does not exist until the one-time
+ * bootstrap (`alchemy provider cloudflare bootstrap`). Reading its bearer
+ * token back binds a Secrets Store secret, so the CI token also needs
+ * `Secrets Store Write` (`stacks/github.ts`). Selecting the remote store
+ * before that bootstrap makes `pnpm dev`, `pnpm test:dev` and `pnpm test:e2e`
+ * die at the state-store step, so it is opt-in:
+ *
+ *   ALCHEMY_REMOTE_STATE=1 pnpm deploy      # only after the bootstrap
+ *
+ * Unset (or any value other than "1") keeps `Alchemy.localState()`. Both
+ * harnesses read this same flag, so the stack and the `Test.make` store cannot
+ * drift — a deploy in one store and a destroy in another is exactly the leak
+ * the workflow's PR-preview path must avoid.
+ */
+export const REMOTE_STATE = process.env.ALCHEMY_REMOTE_STATE === "1";
+
+/**
  * Composition root.
  *
  * The Worker is an Effect-native class (`src/Api.ts`), so it declares and binds
@@ -21,7 +43,9 @@ export default Alchemy.Stack(
   "AlchRunBeta",
   {
     providers: Cloudflare.providers(),
-    state: Alchemy.localState(),
+    // One-line switch (see REMOTE_STATE above): local by default so the dev,
+    // dev-test and e2e commands keep working before the state store exists.
+    state: REMOTE_STATE ? Cloudflare.state() : Alchemy.localState(),
   },
   Effect.gen(function* () {
     const worker = yield* Api;

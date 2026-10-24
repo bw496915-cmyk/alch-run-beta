@@ -7,7 +7,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { expect } from "vitest";
 
-import Stack from "../alchemy.run.ts";
+import Stack, { REMOTE_STATE } from "../alchemy.run.ts";
 
 /**
  * Deployed-stack end-to-end test — the layer the offline suite cannot reach
@@ -27,7 +27,9 @@ import Stack from "../alchemy.run.ts";
  */
 const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
   providers: Cloudflare.providers(),
-  state: Alchemy.localState(),
+  // Matches the stack's store (alchemy.run.ts): local by default, or the
+  // shared `Cloudflare.state()` store once the bootstrap has run.
+  state: REMOTE_STATE ? Cloudflare.state() : Alchemy.localState(),
 });
 
 /** Deploy once for the file; each test `yield*`s the outputs. */

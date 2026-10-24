@@ -1,3 +1,4 @@
+import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
 import * as Effect from "effect/Effect";
@@ -6,7 +7,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { expect } from "vitest";
 
-import Stack from "../alchemy.run.ts";
+import Stack, { REMOTE_STATE } from "../alchemy.run.ts";
 
 /**
  * The API suite, against a **locally deployed** stack.
@@ -20,6 +21,9 @@ import Stack from "../alchemy.run.ts";
 const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
   providers: Cloudflare.providers(),
   dev: true,
+  // Must match the stack's store (alchemy.run.ts): local by default, or the
+  // shared `Cloudflare.state()` store once the bootstrap has run.
+  state: REMOTE_STATE ? Cloudflare.state() : Alchemy.localState(),
 });
 
 const stack = beforeAll(deploy(Stack), { timeout: 300_000 });

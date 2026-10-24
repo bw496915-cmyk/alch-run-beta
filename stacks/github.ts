@@ -62,6 +62,8 @@ export default Alchemy.Stack(
             "D1 Write",
             "Queues Write",
             "Account Settings Write",
+            // Cloudflare.state() reads its token via a Secrets Store binding, which needs Write.
+            "Secrets Store Write",
             "Workers Tail Read",
             // cron-health queries Workers Observability telemetry.
             "Workers Observability Write",

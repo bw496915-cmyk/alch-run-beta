@@ -144,9 +144,18 @@ Easy to get backwards, so here is the pinned reality (`alchemy --help` output, n
 
 So on beta.83, moving this repo from `Alchemy.localState()` to a shared state store means
 `Cloudflare.state()` **plus** a one-time `alchemy provider cloudflare bootstrap`. beta.84 then
-rewrites that one command. Nothing here wires either, which is why the upgrade is inert — but
-do not "fix" a beta.83 project by writing the beta.84 form into it; it fails as an unknown
-command.
+rewrites that one command. Do not "fix" a beta.83 project by writing the beta.84 form into it; it
+fails as an unknown command.
+
+This repo now carries that move as a switch, not a live change: `alchemy.run.ts` exports
+`REMOTE_STATE = process.env.ALCHEMY_REMOTE_STATE === "1"` and uses
+`state: REMOTE_STATE ? Cloudflare.state() : Alchemy.localState()`, and both harnesses
+(`test/api.test.ts`, `e2e/stack.test.ts`) read the same flag. The default is local, so nothing
+changes until the one-time `alchemy provider cloudflare bootstrap` has run and the CI token has been
+re-minted with `Secrets Store Write`; then set `ALCHEMY_REMOTE_STATE=1` — the deploy workflow sets
+it on its own job, leaving `e2e.yml` local. Beta.84 changes the command, not this switch: the
+`Cloudflare.state()` call may then take `{ workerName }`, and the bootstrap becomes
+`alchemy state bootstrap --backend cloudflare`.
 
 ### One-way door: Durable Object deploy flow — **opened in beta.82 (#2135)**
 
