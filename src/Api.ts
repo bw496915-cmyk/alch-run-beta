@@ -203,11 +203,21 @@ export default class Api extends Cloudflare.Worker<Api>()(
             counters
               .getByName(COUNTER_NAME)
               .increment()
-              .pipe(Effect.catch(() => Effect.succeed(null))),
+              // `catch` sees typed failures only; a dead binding arrives as a
+              // *defect*, so `catchDefect` is what turns it into the `null`
+              // that `degraded` is computed from. Without it the whole route
+              // 500s (verified: delete a test stage's D1, 2026-10-24).
+              .pipe(
+                Effect.catch(() => Effect.succeed(null)),
+                Effect.catchDefect(() => Effect.succeed(null)),
+              ),
             db
               .prepare("SELECT COUNT(*) AS n FROM audit_events")
               .first<{ n: number }>()
-              .pipe(Effect.catch(() => Effect.succeed(null))),
+              .pipe(
+                Effect.catch(() => Effect.succeed(null)),
+                Effect.catchDefect(() => Effect.succeed(null)),
+              ),
           ],
           { concurrency: "unbounded" },
         );
@@ -381,6 +391,21 @@ export default class Api extends Cloudflare.Worker<Api>()(
             {
               error: "dependency unavailable",
               detail: error instanceof Error ? error.message : String(error),
+            },
+            { status: 503 },
+          ),
+        ),
+        // …and the same for a *defect*. `Effect.catch` only sees typed
+        // failures, so an unexpected throw — a deleted D1 database, say —
+        // escaped as a bare 500 with no body, where the pre-migration
+        // `try/catch` had degraded to this 503. Verified by deleting a test
+        // stage's D1 and re-probing (2026-10-24); nothing in the gate set could
+        // see it, because every gate runs with its dependencies healthy.
+        Effect.catchDefect((defect) =>
+          json(
+            {
+              error: "dependency unavailable",
+              detail: defect instanceof Error ? defect.message : String(defect),
             },
             { status: 503 },
           ),

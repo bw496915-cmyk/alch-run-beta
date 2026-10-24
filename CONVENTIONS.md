@@ -155,6 +155,16 @@ is nothing to hand-type and no `InferEnv` to apply, so the earlier TS2589 workar
 `ApiEnv` from the bindings object rather than from the Worker) went with it, and `test/policy.test.ts`
 no longer asserts `ApiEnv` at all — the guarantee is **structural** now (see §Gates layer 3).
 
+**`Effect.catch` is not `try`/`catch` (2026-10-24).** It recovers typed **failures** only. An unexpected
+throw is a **defect** and passes straight through — and a dead binding, a deleted database and a torn-down
+lifecycle all arrive as defects. So a route whose contract is "degrade, don't 500" needs `Effect.catchDefect`
+(or `catchAllCause`) as well; that is the shape alchemy itself uses (`Apply.ts`, `Plan.ts`,
+`AWS/Lambda/DurableBridge.ts`). The Effect-native migration lost the pre-migration `try`/`catch`'s coverage
+this way — `/stats` and `/audit` returned a bare 500 with an empty body when their D1 was deleted — and
+**no gate could see it, because every gate runs with its dependencies healthy**. Reintroducing a bare
+`Effect.catch` on a binding read regresses a verified claim; a fault injection is the only check that
+finds it.
+
 ## Refactor backlog
 
 Still true: interfaces deleted (14 → 0), `Response.json`, typed DO RPC instead of URL

@@ -78,7 +78,14 @@ sleep 10 && curl -H "$AUTH" $URL/audit           # the queued event, written by 
 ```
 
 A failing dependency **degrades** rather than 500s: `/stats` returns the half that worked
-with `degraded: true`, and any unexpected throw becomes a named `503`. Audit events that
+with `degraded: true`, and any unexpected throw becomes a named `503`. **Verified by fault injection, not by reading the code** (2026-10-24): deploy a `test_` stage, delete its
+D1 database, probe — `/stats` 200 `{"d1":{"auditEvents":null},"degraded":true}` (the Durable Object half
+survives), `/audit` `503 {"error":"dependency unavailable","detail":"D1_ERROR: … has been deleted."}`, `/health` 200.
+That injection is what caught the **regression the Effect-native migration introduced**: `Effect.catch` recovers
+typed failures but not **defects**, so a dead binding slipped past both the per-dependency catch and the Worker's
+wrapper as a bare 500 with no body. `Effect.catchDefect` restored the contract — see CONVENTIONS.
+
+Audit events that
 exhaust their retries land in the `AuditDeadLetter` queue instead of vanishing. `ADMIN_TOKEN`
 is a Worker secret (`Config.Redacted`); it is required at plan/deploy time, so set
 `$ADMIN_TOKEN` locally and as a repo secret in CI.

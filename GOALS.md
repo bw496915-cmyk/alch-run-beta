@@ -21,6 +21,8 @@ Effect-native migration (`ad99c8d`).
 
 | **G12** | **Promote the one-off challenge results into gates.** The UTF-8 `bytes` case is now in `api-probe`; two others are still single observations — the **60 s TTL** (which needs a 62 s wait, so it wants an opt-in probe mode) and **retry-exhaustion → DLQ** (which needs the live queue, so it wants a home in `e2e` or an ops script). | the TTL check runs as an opt-in mode, and retry-exhaustion is asserted somewhere recurring | **open** |
 
+| **G13** | **Guard the degrade contract.** `Effect.catch` ≠ `try`/`catch`: a dead binding arrives as a *defect*, so the Effect-native migration turned a verified graceful-degrade into a bare 500 — invisible to every gate, because every gate runs with its dependencies healthy. | the fault injection reproduces the documented degrade, and the idiom is binding | ✅ **closed** — fixed with `Effect.catchDefect` at both layers and re-verified by the same injection: `/stats` 200 `degraded:true`, `/audit` 503 `{"error":"dependency unavailable","detail":"D1_ERROR: … has been deleted."}`. The idiom is now a CONVENTIONS rule. |
+
 ## Adversarial challenge log (2026-10-24)
 
 Beliefs re-tested against raw sources rather than restated — the exercise that
@@ -28,9 +30,13 @@ falsified one of them:
 
 - **Survived — UTF-8 `bytes`.** `é`→2, `é𝄞`→6, `👋`→4 (UTF-8, where `String.length` gives 1/3/2). Now an `api-probe` check.
 - **Survived — the 60 s TTL.** `miss → hit → hit(t+30) → miss(t+62)`, in the *same* process, so it is the TTL expiring and **not** isolate churn — the distinction the audit drew.
-- **Survived — the degrade path.** Not blind after all: the audit's own record has a fault injection (deploy a scratch stage, **delete its D1**, probe) → `/stats` 200 `degraded:true, auditEvents:null`, `/audit` 503.
+- **Falsified — "the daily cron has not been observed."** `audit_events` carries `0 3 * * *` at `2026-10-24T03:00:33.911Z`. Corrected in README. The belief was narrative-shaped ("all those rows were the replay") and survived three documents and two commits because nobody queried the table: **"has not been observed" is a statement about our records, not about the world.**
 - **Survived — retry-exhaustion → DLQ**, newly observed: a malformed body pushed onto the **events** queue moved `events backlog 1 → 0` and `DLQ 0 → 1` within 10 s, while `audit_events` stayed at 31 — three failed attempts, then the body reached the sink intact.
-- **Falsified — "the daily cron has not been observed."** `audit_events` has `0 3 * * *` at `2026-10-24T03:00:33.911Z`. Corrected in README.
+- **Falsified, then fixed — the degrade path.** The audit's fault injection (delete a stage's D1) gave `/stats` 200 `degraded:true` + `/audit` 503 for the **pre-migration** bundle. Re-run on the Effect-native code: `/stats` **500, empty body** and `/audit` **500** — a regression the migration introduced, because `Effect.catch` recovers typed failures but not *defects*, and a dead binding is a defect. No gate could see it (every gate runs with healthy dependencies). Fixed with `Effect.catchDefect` at both layers and re-verified by the same injection (G13). **The first pass of this very log marked this one "survived"** — because the audit's *record* of an injection existed. A record of an experiment is not the experiment; re-running it is what found the regression.
+- **#1b — the Effect-native consumer does route poisoned events to the DLQ** (previously proven only for the deployed async shape): on a `test_` stage, `events backlog 1→0` and `DLQ 0→1` in 10 s — and the DLQ came out as the literal **`auditdeadletter-test-g2exp`**, exactly as G4 predicted, not the generated name.
+- **#3 concurrency — reproduced, with a caveat.** 20 concurrent `/stats` on the dev server *and* the live bundle: the counter advanced by 21 (the 20 plus my own measuring call, which also increments) — none lost. But a Durable Object serialises per instance anyway, so this shows the *claim* without isolating `storage.transaction`'s share of it.
+- **#4 `x-photo-created` — reproduced.** Byte-identical to the PUT response's `createdAt` and inside the request window, on both the dev server and the live bundle.
+- **#5 cron recurrence — untestable today.** One `0 3 * * *` fire is on record (`2026-10-24T03:00:33Z`); the next datum is 2026-10-25 03:00Z. The *delivery* contract is verified; recurrence is pending an observation, which is a different statement from "it does not recur".
 - **Found along the way —** the Queues push API takes an **object or array** for `body`, never a string (`400 Validation error: Expected object, received string at "body"`). That is why the sink had only ever been proven by *placing* messages in the DLQ rather than *routing* them there.
 
 ## Standing rules for whoever picks these up
