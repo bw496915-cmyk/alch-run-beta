@@ -11,7 +11,7 @@
  *
  * It is not a replacement for the harness or for `pnpm test:e2e` (which proves
  * the deployed bundle); it is the check that covers the routes, statuses,
- * headers and bodies the offline gate cannot see at all — 30 assertions, no
+ * headers and bodies the offline gate cannot see at all — 32 assertions, no
  * sidecar, no account, no deploy.
  *
  * ```sh
@@ -128,6 +128,23 @@ check(
   typeof get.headers["x-photo-created"] === "string" && get.headers["x-photo-created"] !== "undefined",
   get.headers["x-photo-created"],
 );
+
+// --- bytes are UTF-8, not UTF-16 code units -------------------------------
+// The shipped bug this guards: `é` was recorded as 1 (its `String.length`) and
+// the fix encodes first. `é𝄞` is 3 UTF-16 units and 6 UTF-8 bytes, so the two
+// readings cannot be confused; ASCII cannot tell them apart.
+const utf8Body = "\u00e9\ud834\udd1e";
+const utf8Put = await req("PUT", "/photos/utf8-probe.txt", {
+  body: utf8Body,
+  headers: { "content-type": "text/plain" },
+});
+check("PUT records UTF-8 byte length, not UTF-16 units", utf8Put.json?.bytes === 6, {
+  bytes: utf8Put.json?.bytes,
+  utf16Units: utf8Body.length,
+});
+const utf8Get = await req("GET", "/photos/utf8-probe.txt");
+check("GET x-photo-bytes agrees with it", utf8Get.headers["x-photo-bytes"] === "6", utf8Get.headers["x-photo-bytes"]);
+await req("DELETE", "/photos/utf8-probe.txt");
 
 // --- the KV cache pair (a hit must never reach D1) -------------------------
 const miss = await req("GET", "/photos");

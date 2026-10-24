@@ -140,7 +140,7 @@ fresh state would try to recreate resources that already exist.
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
 | `pnpm test` | `vitest run` — 42 offline tests in seven suites (logic/docs/policy/ops), no account, no network. It does **not** exercise bindings — see Testing |
 | `pnpm test:dev` | `vitest.dev.config.ts` — `test/api.test.ts` on workerd, driving the Worker over HTTP. Currently unreliable here ([`GOALS.md`](./GOALS.md) G8) |
-| `pnpm api-probe` | `scripts/api-probe.ts` — **30** route/status/header/body assertions against a **running** `pnpm dev` server. Offline, no account, no deploy; the dependable route coverage while the dev harness is unreliable. CI runs it in the `api routes` job |
+| `pnpm api-probe` | `scripts/api-probe.ts` — **32** route/status/header/body assertions against a **running** `pnpm dev` server. Offline, no account, no deploy; the dependable route coverage while the dev harness is unreliable. CI runs it in the `api routes` job |
 | `pnpm test:e2e` | The deployed-stack suite (`e2e/stack.test.ts`): deploys a `test_$USER` stage, drives the live Worker over HTTP, destroys. Needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`) — [REVIEW §4 #7](./REVIEW-2026-10-23.md) |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |

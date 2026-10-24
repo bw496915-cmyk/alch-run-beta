@@ -27,7 +27,7 @@ actionlint .github/workflows/*.yml
 `test/manifest.test.ts` keeps the suite set exact and a test-count floor (41): adding a suite or
 tests is a visible edit there.
 
-A fourth, `pnpm api-probe` (`scripts/api-probe.ts`), drives a **running** `pnpm dev` server with 30 route, status,
+A fourth, `pnpm api-probe` (`scripts/api-probe.ts`), drives a **running** `pnpm dev` server with 32 route, status,
 header and body assertions — offline, no account, no deploy. It is the dependable route coverage while the dev-mode
 harness intermittently fails to serve (`GOALS.md` G8); CI runs it in the `api routes` job.
 
