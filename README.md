@@ -100,12 +100,13 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
 | Runtime compat | `compatibility_date: 2026-08-31`, `compatibility_flags: ["new_module_registry"]` | shipped on the version (`GET …/services/{name}/environments/production`) — recorded here because the docs never named it |
 
-Two live caveats, neither green yet:
+Two live caveats:
 
-- the cron's *daily* schedule has not been observed: the 16 `cron.fire` rows came from a
-  temporary `* * * * *` trigger, so the next real signal is `0 3 * * *` at 2026-10-24 03:00 UTC —
-  `pnpm cron-health` confirms it (it exits 1 until then, correctly). The 2026-10-23 redeploy
-  removed the probe trigger, so the committed schedule is now the only one attached;
+- the cron's *daily* schedule has not been **observed**: the 16 `cron.fire` rows came from a
+  temporary `* * * * *` trigger, and the 2026-10-23 redeploy removed it, so the committed schedule
+  is the only one attached. The *delivery* side is now green, though: `pnpm cron-health`'s
+  "delivered expression matches configured" step passes (`cron health` run `40096223844`) — what is
+  still unobserved is a fire at 03:00 UTC;
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
   [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §9 #7.
