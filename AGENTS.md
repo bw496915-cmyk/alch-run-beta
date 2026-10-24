@@ -27,6 +27,10 @@ actionlint .github/workflows/*.yml
 `test/manifest.test.ts` keeps the suite set exact and a test-count floor (41): adding a suite or
 tests is a visible edit there.
 
+A fourth, `pnpm api-probe` (`scripts/api-probe.ts`), drives a **running** `pnpm dev` server with 30 route, status,
+header and body assertions — offline, no account, no deploy. It is the dependable route coverage while the dev-mode
+harness intermittently fails to serve (`GOALS.md` G8); CI runs it in the `api routes` job.
+
 A fifth, `pnpm test:e2e` (`e2e/stack.test.ts`, `vitest.e2e.config.ts`), deploys a `test_$USER` stage,
 drives the live Worker, and destroys it. It needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`)
 and is deliberately outside `test/` so the offline gate stays offline. CI runs it in

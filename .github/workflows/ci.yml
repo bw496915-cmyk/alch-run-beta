@@ -77,6 +77,69 @@ jobs:
       - name: Unit tests (vitest)
         run: pnpm test
 
+  api-routes:
+    name: api routes (offline, no account)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Local dev stage — never `test_*` (nothing is retained or torn down here;
+      # the dev server is local and dies with the job).
+      ALCHEMY_STAGE: dev_ci
+      # A DUMMY, not a secret: the dev server must have *a* token configured or the
+      # admin gate answers 503 (token unset) instead of exercising the 401 path the
+      # probe asserts. The value never leaves this job.
+      ADMIN_TOKEN: probe-token
+      # Present on main, empty on a fork. Local providers need no account; this is
+      # only here so a fork is not the first place the difference shows up.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The route coverage the offline suite cannot provide: it touches no binding
+      # at all, and the dev-mode harness (`pnpm test:dev`) intermittently never
+      # brings the Worker's HTTP server up (GOALS.md G8). The CLI dev server does
+      # serve — so the probe drives that, and the job fails if the server never
+      # answers rather than hanging forever.
+      - name: Boot the dev server and probe the routes
+        run: |
+          set -euo pipefail
+          pnpm dev > dev-server.log 2>&1 &
+          DEV_PID=$!
+          up=false
+          for i in $(seq 1 60); do
+            if node -e 'fetch("http://127.0.0.1:1337/health").then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))' 2>/dev/null; then
+              echo "dev server serving /health after ~$((i * 2))s"
+              up=true
+              break
+            fi
+            sleep 2
+          done
+          status=0
+          if [ "$up" != "true" ]; then
+            echo "::error::the dev server never answered /health — see the log below"
+            status=1
+          else
+            pnpm api-probe || status=$?
+          fi
+          kill "$DEV_PID" 2>/dev/null || true
+          echo "::group::dev server log"
+          tail -40 dev-server.log
+          echo "::endgroup::"
+          exit "$status"
+
   plan:
     name: alchemy plan on main (apply stays manual)
     needs: verify

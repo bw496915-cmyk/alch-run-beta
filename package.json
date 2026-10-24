@@ -19,6 +19,7 @@
     "state": "alchemy state list",
     "cron-health": "node scripts/cron-health.ts",
     "queue-health": "node scripts/queue-health.ts",
+    "api-probe": "node scripts/api-probe.ts",
     "preflight": "node scripts/preflight.ts"
   },
   "dependencies": {
