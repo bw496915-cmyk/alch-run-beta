@@ -124,7 +124,11 @@ Two live caveats:
 The live bundle last matched `src/` on 2026-10-23 (the four bug fixes, the `AuditDeadLetter` queue,
 the admin gate, the degrade-to-503 path). **It no longer does:** the Effect-native migration and the
 `HttpRouter` change have not been redeployed to `deep-pass`, so until the next deploy (expected with
-the DLQ rename, [`GOALS.md`](./GOALS.md) G4) read the table above as the pre-migration bundle.
+the DLQ rename, [`GOALS.md`](./GOALS.md) G4) read the table above as the pre-migration bundle. Behaviourally it is
+the **async** bundle, not merely an older `main`: probed 2026-10-24 it answers `/health?x=1` with 200 (so it strips
+the query) but `//health` and `/HEALTH` with 404 (so it is case- and slash-exact) — a fingerprint of **neither** the
+Effect-native `if`-chain nor today's router. Its own degrade behaviour is asserted in the rows above but has **not**
+been re-injected since 2026-10-23; only the Effect-native code has been.
 
 ```bash
 export CLOUDFLARE_API_TOKEN=…          # see Credentials
