@@ -5,7 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
-import { HttpServerRequest } from "effect/http/HttpServerRequest";
+import type { HttpServerRequest } from "effect/http/HttpServerRequest";
+import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
 import { Cache } from "./Cache.ts";
@@ -160,180 +161,219 @@ export default class Api extends Cloudflare.Worker<Api>()(
       )
       .all<PhotoRow>();
 
-    return {
-      fetch: Effect.gen(function* () {
-        const request = yield* HttpServerRequest;
-        const path = request.url.replace(/\/+$/, "") || "/";
-        const method = request.method;
+    // `request.url` is the request target (`/path?query`), so normalising strips
+    // trailing slashes only; a query string, if present, travels with the key —
+    // exactly as it did before the router. The `/photos/*` wildcard (rather than
+    // `/photos/:key`) is what keeps slash-bearing keys matching.
+    const normalisePath = (url: string) => url.replace(/\/+$/, "") || "/";
+    const photoKey = (url: string) =>
+      decodeURIComponent(normalisePath(url).slice("/photos/".length));
 
-        if (path === "/") {
-          return yield* json({
-            service: "alch-run-beta",
-            routes: {
-              "GET /": "this index",
-              "GET /health": "liveness",
-              "GET /stats": "DO + D1 counters; admin: Authorization: Bearer ADMIN_TOKEN",
-              "GET /audit": "audit rows; admin",
-              "GET /photos": "photo index (KV-cached)",
-              "GET /photos/:key": "R2 body + D1 metadata",
-              "PUT /photos/:key": "store a body, upsert metadata, enqueue an audit event",
-              "DELETE /photos/:key": "remove the object + row",
-            },
-            docs: "https://github.com/bw496915-cmyk/alch-run-beta",
-          });
-        }
+    const index = () =>
+      json({
+        service: "alch-run-beta",
+        routes: {
+          "GET /": "this index",
+          "GET /health": "liveness",
+          "GET /stats": "DO + D1 counters; admin: Authorization: Bearer ADMIN_TOKEN",
+          "GET /audit": "audit rows; admin",
+          "GET /photos": "photo index (KV-cached)",
+          "GET /photos/:key": "R2 body + D1 metadata",
+          "PUT /photos/:key": "store a body, upsert metadata, enqueue an audit event",
+          "DELETE /photos/:key": "remove the object + row",
+        },
+        docs: "https://github.com/bw496915-cmyk/alch-run-beta",
+      });
 
-        if (path === "/health") {
-          return yield* json({ ok: true, time: new Date().toISOString() });
-        }
+    const health = () =>
+      json({ ok: true, time: new Date().toISOString() });
 
-        // Both ops endpoints are admin-gated; each dependency is read
-        // independently so one failing does not take the other.
-        if ((path === "/stats" || path === "/audit") && method === "GET") {
-          const denied = yield* requireAdmin(
-            request.headers["authorization"],
-            request.headers["x-admin-token"],
-          );
-          if (denied !== null) return denied;
+    // Both ops endpoints are admin-gated; each dependency is read independently
+    // so one failing does not take the other.
+    const stats = (request: HttpServerRequest) =>
+      Effect.gen(function* () {
+        const denied = yield* requireAdmin(
+          request.headers["authorization"],
+          request.headers["x-admin-token"],
+        );
+        if (denied !== null) return denied;
 
-          if (path === "/stats") {
-            const [requests, audit] = yield* Effect.all(
-              [
-                counters
-                  .getByName(COUNTER_NAME)
-                  .increment()
-                  .pipe(Effect.catch(() => Effect.succeed(null))),
-                db
-                  .prepare("SELECT COUNT(*) AS n FROM audit_events")
-                  .first<{ n: number }>()
-                  .pipe(Effect.catch(() => Effect.succeed(null))),
-              ],
-              { concurrency: "unbounded" },
-            );
-            return yield* json({
-              durableObject: { name: COUNTER_NAME, requests },
-              d1: { auditEvents: audit?.n ?? null },
-              degraded: requests === null || audit === null,
-            });
-          }
+        const [requests, audit] = yield* Effect.all(
+          [
+            counters
+              .getByName(COUNTER_NAME)
+              .increment()
+              .pipe(Effect.catch(() => Effect.succeed(null))),
+            db
+              .prepare("SELECT COUNT(*) AS n FROM audit_events")
+              .first<{ n: number }>()
+              .pipe(Effect.catch(() => Effect.succeed(null))),
+          ],
+          { concurrency: "unbounded" },
+        );
+        return yield* json({
+          durableObject: { name: COUNTER_NAME, requests },
+          d1: { auditEvents: audit?.n ?? null },
+          degraded: requests === null || audit === null,
+        });
+      });
 
-          const { results } = yield* db
-            .prepare("SELECT id, type, detail, at FROM audit_events ORDER BY at DESC LIMIT 25")
-            .all<AuditRow>();
-          return yield* json({ count: results.length, events: results });
-        }
+    const audit = (request: HttpServerRequest) =>
+      Effect.gen(function* () {
+        const denied = yield* requireAdmin(
+          request.headers["authorization"],
+          request.headers["x-admin-token"],
+        );
+        if (denied !== null) return denied;
 
-        if (path === "/photos" && method === "GET") {
-          const cached = yield* kv.get(INDEX_CACHE_KEY);
-          if (cached !== null) {
-            const parsed = (() => {
-              try {
-                const value: unknown = JSON.parse(cached);
-                return Array.isArray(value) ? (value as ReadonlyArray<PhotoRow>) : null;
-              } catch {
-                return null;
-              }
-            })();
-            if (parsed !== null) {
-              return yield* json({ source: "kv", photos: parsed }, { headers: { "x-cache": "hit" } });
+        const { results } = yield* db
+          .prepare("SELECT id, type, detail, at FROM audit_events ORDER BY at DESC LIMIT 25")
+          .all<AuditRow>();
+        return yield* json({ count: results.length, events: results });
+      });
+
+    const list = () =>
+      Effect.gen(function* () {
+        const cached = yield* kv.get(INDEX_CACHE_KEY);
+        if (cached !== null) {
+          const parsed = (() => {
+            try {
+              const value: unknown = JSON.parse(cached);
+              return Array.isArray(value) ? (value as ReadonlyArray<PhotoRow>) : null;
+            } catch {
+              return null;
             }
+          })();
+          if (parsed !== null) {
+            return yield* json({ source: "kv", photos: parsed }, { headers: { "x-cache": "hit" } });
           }
-          const { results } = yield* listPhotos;
-          yield* kv.put(INDEX_CACHE_KEY, JSON.stringify(results), {
-            expirationTtl: CACHE_TTL_SECONDS,
-          });
-          return yield* json({ source: "d1", photos: results }, { headers: { "x-cache": "miss" } });
         }
+        const { results } = yield* listPhotos;
+        yield* kv.put(INDEX_CACHE_KEY, JSON.stringify(results), {
+          expirationTtl: CACHE_TTL_SECONDS,
+        });
+        return yield* json({ source: "d1", photos: results }, { headers: { "x-cache": "miss" } });
+      });
 
-        if (path === "/photos" && (method === "PUT" || method === "POST")) {
-          return yield* json({ error: `missing key in path: ${method} /photos/<key>` }, { status: 400 });
-        }
+    const missingKey = (request: HttpServerRequest) =>
+      json({ error: `missing key in path: ${request.method} /photos/<key>` }, { status: 400 });
 
-        if (path.startsWith("/photos/")) {
-          const key = decodeURIComponent(path.slice("/photos/".length));
-          if (key.length === 0) {
-            return yield* json({ error: "missing key in path: PUT /photos/<key>" }, { status: 400 });
-          }
-
-          if (method === "GET") {
-            const [object, row] = yield* Effect.all(
-              [
-                bucket.get(key),
-                db
-                  .prepare("SELECT key, bytes, content_type, created_at FROM photos WHERE key = ?")
-                  .bind(key)
-                  .first<PhotoRow>(),
-              ],
-              { concurrency: "unbounded" },
-            );
-            if (object === null) {
-              return yield* json({ error: "object not found in R2", key, row }, { status: 404 });
-            }
-            // Stream the stored object body: it is the platform API and it keeps
-            // binary bytes intact (reading `.text()` would re-encode them).
-            return HttpServerResponse.fromWeb(
-              new Response(Stream.toReadableStream(object.body), {
-                status: 200,
-                headers: {
-                  "content-type": row?.content_type ?? "text/plain; charset=utf-8",
-                  "x-photo-bytes": String(object.size),
-                  "x-photo-created": row?.created_at ?? "unknown",
-                },
-              }),
-            );
-          }
-
-          if (method === "PUT") {
-            const body = yield* request.text;
-            const byteLength = new TextEncoder().encode(body).byteLength;
-            const contentType = request.headers["content-type"] ?? "text/plain";
-            const createdAt = new Date().toISOString();
-
-            yield* bucket.put(key, body, { httpMetadata: { contentType } });
-            yield* db
-              .prepare(
-                `INSERT INTO photos (key, bytes, content_type, created_at)
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT(key) DO UPDATE SET
-                   bytes = excluded.bytes,
-                   content_type = excluded.content_type,
-                   created_at = excluded.created_at`,
-              )
-              .bind(key, byteLength, contentType, createdAt)
-              .run();
-            yield* kv.delete(INDEX_CACHE_KEY);
-
-            const event: PhotoEvent = {
-              id: crypto.randomUUID(),
-              type: "photo.put",
-              key,
-              bytes: byteLength,
-              at: createdAt,
-            };
-            yield* queue.send(event);
-
-            return yield* json(
-              { key, bytes: byteLength, contentType, createdAt, queued: event.id },
-              { status: 201 },
-            );
-          }
-
-          if (method === "DELETE") {
-            yield* bucket.delete(key);
-            const deleted = yield* db
-              .prepare("DELETE FROM photos WHERE key = ?")
+    const getPhoto = (request: HttpServerRequest) =>
+      Effect.gen(function* () {
+        const key = photoKey(request.url);
+        // `HttpRouter` registers `/photos/*` and its base `/photos` together,
+        // so a keyless `GET /photos` arrives here; it is the index.
+        if (key === "") return yield* list();
+        const [object, row] = yield* Effect.all(
+          [
+            bucket.get(key),
+            db
+              .prepare("SELECT key, bytes, content_type, created_at FROM photos WHERE key = ?")
               .bind(key)
-              .run();
-            yield* kv.delete(INDEX_CACHE_KEY);
-            return yield* json({
-              key,
-              deleted: Number(deleted.meta.changes ?? 0) > 0,
-            });
-          }
+              .first<PhotoRow>(),
+          ],
+          { concurrency: "unbounded" },
+        );
+        if (object === null) {
+          return yield* json({ error: "object not found in R2", key, row }, { status: 404 });
         }
+        // Stream the stored object body: it is the platform API and it keeps
+        // binary bytes intact (reading `.text()` would re-encode them).
+        return HttpServerResponse.fromWeb(
+          new Response(Stream.toReadableStream(object.body), {
+            status: 200,
+            headers: {
+              "content-type": row?.content_type ?? "text/plain; charset=utf-8",
+              "x-photo-bytes": String(object.size),
+              "x-photo-created": row?.created_at ?? "unknown",
+            },
+          }),
+        );
+      });
 
-        return yield* json({ error: "not found", method, path }, { status: 404 });
-      }).pipe(
+    const putPhoto = (request: HttpServerRequest) =>
+      Effect.gen(function* () {
+        const key = photoKey(request.url);
+        // A keyless `PUT /photos` is the old 400 that names the method.
+        if (key === "") return yield* missingKey(request);
+        const body = yield* request.text;
+        const byteLength = new TextEncoder().encode(body).byteLength;
+        const contentType = request.headers["content-type"] ?? "text/plain";
+        const createdAt = new Date().toISOString();
+
+        yield* bucket.put(key, body, { httpMetadata: { contentType } });
+        yield* db
+          .prepare(
+            `INSERT INTO photos (key, bytes, content_type, created_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET
+               bytes = excluded.bytes,
+               content_type = excluded.content_type,
+               created_at = excluded.created_at`,
+          )
+          .bind(key, byteLength, contentType, createdAt)
+          .run();
+        yield* kv.delete(INDEX_CACHE_KEY);
+
+        const event: PhotoEvent = {
+          id: crypto.randomUUID(),
+          type: "photo.put",
+          key,
+          bytes: byteLength,
+          at: createdAt,
+        };
+        yield* queue.send(event);
+
+        return yield* json(
+          { key, bytes: byteLength, contentType, createdAt, queued: event.id },
+          { status: 201 },
+        );
+      });
+
+    const deletePhoto = (request: HttpServerRequest) =>
+      Effect.gen(function* () {
+        const key = photoKey(request.url);
+        // A keyless `DELETE /photos` was a 404 in the old chain.
+        if (key === "") return yield* notFound(request);
+        yield* bucket.delete(key);
+        const deleted = yield* db
+          .prepare("DELETE FROM photos WHERE key = ?")
+          .bind(key)
+          .run();
+        yield* kv.delete(INDEX_CACHE_KEY);
+        return yield* json({
+          key,
+          deleted: Number(deleted.meta.changes ?? 0) > 0,
+        });
+      });
+
+    const notFound = (request: HttpServerRequest) =>
+      json(
+        { error: "not found", method: request.method, path: normalisePath(request.url) },
+        { status: 404 },
+      );
+
+    // The route table the deny-list asked for: `HttpRouter` replaces the
+    // `if (path === …)` chain. `*` on `/` and `/health` keeps the old
+    // method-agnostic behaviour; the catch-all reproduces the 404 body.
+    const app = yield* HttpRouter.toHttpEffect(
+      HttpRouter.addAll([
+        HttpRouter.route("*", "/", index),
+        HttpRouter.route("*", "/health", health),
+        HttpRouter.route("GET", "/stats", stats),
+        HttpRouter.route("GET", "/audit", audit),
+        // A `/photos/*` route in `HttpRouter` also answers its base `/photos`,
+        // so the keyless cases live inside each handler above.
+        HttpRouter.route("GET", "/photos/*", getPhoto),
+        HttpRouter.route("PUT", "/photos/*", putPhoto),
+        HttpRouter.route("POST", "/photos", missingKey),
+        HttpRouter.route("DELETE", "/photos/*", deletePhoto),
+        HttpRouter.route("*", "*", notFound),
+      ]),
+    );
+
+    return {
+      fetch: app.pipe(
         // Degrade, don't 500: an unexpected dependency failure names itself and
         // returns 503, so a client can tell "try again" from "bad request".
         Effect.catch((error) =>
