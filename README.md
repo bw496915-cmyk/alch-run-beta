@@ -102,11 +102,14 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 
 Two live caveats:
 
-- the cron's *daily* schedule has not been **observed**: the 16 `cron.fire` rows came from a
-  temporary `* * * * *` trigger, and the 2026-10-23 redeploy removed it, so the committed schedule
-  is the only one attached. The *delivery* side is now green, though: `pnpm cron-health`'s
-  "delivered expression matches configured" step passes (`cron health` run `40096223844`) — what is
-  still unobserved is a fire at 03:00 UTC;
+- the cron is now observed on **both** counts. *Delivery*: `pnpm cron-health`'s "delivered expression
+  matches configured" step passes (`cron health` run `40096223844`). *Fire*: a `cron.fire` row for the
+  **committed** expression, read straight out of D1 —
+  `type: "cron.fire", detail: "0 3 * * * at 1792810832571", at: "2026-10-24T03:00:33.911Z"` — so the
+  daily schedule fired 33 s into 03:00 UTC. This supersedes an earlier line in this file claiming the
+  daily schedule "has not been observed": the 16 `* * * * *` rows were the replay, and *this* row is
+  the real schedule. **The verbs carried the belief, and the raw table refuted it** — "has not been
+  observed" is not the same as "did not fire";
 - one DO call returned `errorcode: 1101`; telemetry later showed Cloudflare never entered the
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
   [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §9 #7.
