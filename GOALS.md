@@ -18,5 +18,6 @@ Effect-native migration (`ad99c8d`).
 - `CONVENTIONS.md` is binding; `test/policy.test.ts` enforces it.
 - `main` is expected green: `tsc --noEmit`, `pnpm test`, `pnpm test:dev`, `pnpm test:e2e`, `actionlint .github/workflows/*.yml`.
 - Parallel agents get **disjoint file lists**. This repo already lost a commit to two agents sharing a branch (`REVIEW-2026-10-23.md` rule 10).
+- **`pnpm test:dev` binds a fixed port (1337).** Two concurrent runs collide: the second silently binds 1338 while the suite still targets 1337, and times out with a misleading error. Serialize dev-suite runs.
 - A claim is not evidence. Verify the **effect** — a deploy log, an API record, a run — not the attachment: a green `tsc` and a clean plan both said "fine" while a deploy was failing 10.9 s in.
 - New dev tooling: read the pinned source under `node_modules/<pkg>/src`, not the docs. The docs lag it, and four "impossibilities" in this repo's own history turned out to be stale that way.
