@@ -58,6 +58,13 @@ that has to be right — re-run its grep rather than trusting a count.
 | `PUT /photos/:key` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
 | `DELETE /photos/:key` | R2 + D1 + KV | Removes object + row, busts cache |
 
+Paths are matched **case-insensitively** — `/HEALTH`, `/PHOTOS/<key>` and `/PhOtOs/<key>` reach the same
+handlers as their lowercase forms — because the pinned `HttpRouter` hardcodes `caseSensitive: false`
+(`effect/src/http/FindMyWay/internal/router.ts:63`; effect's own MCP server sets it `true`). Object keys
+stay case-sensitive (`/photos/MIXED` is a 404, distinct from `/photos/mixed`), the admin gate is unaffected
+(`/STATS` without a token is still 401), and both prior generations — the deployed async bundle and the
+Effect-native `if`-chain — matched case-exactly. See `GOALS.md` G14.
+
 Effect-native: `src/Api.ts` **is** the Worker (`main: import.meta.url`), its bindings are
 `yield*`ed services, and the queue consumer (`consumeQueueMessages`) and the cron
 (`Workers.cron`, `0 3 * * *` — deployed, and asserted by `pnpm cron-health`; the migration has not
@@ -152,7 +159,7 @@ fresh state would try to recreate resources that already exist.
 | `pnpm test` | `vitest run` — 42 offline tests in seven suites (logic/docs/policy/ops), no account, no network. It does **not** exercise bindings — see Testing |
 | `pnpm test:dev` | `vitest.dev.config.ts` — `test/api.test.ts` on workerd, driving the Worker over HTTP. Currently unreliable here ([`GOALS.md`](./GOALS.md) G8) |
 | `pnpm api-probe` | `scripts/api-probe.ts` — **32** route/status/header/body assertions against a **running** `pnpm dev` server. Offline, no account, no deploy; the dependable route coverage while the dev harness is unreliable. CI runs it in the `api routes` job |
-| `pnpm test:e2e` | The deployed-stack suite (`e2e/stack.test.ts`): deploys a `test_$USER` stage, drives the live Worker over HTTP, destroys. Needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`) — [REVIEW §4 #7](./REVIEW-2026-10-23.md) |
+| `pnpm test:e2e` | The deployed-stack suite (`e2e/stack.test.ts`): deploys a `test_$USER` stage, drives the live Worker over HTTP, **fault-injects the D1 to assert the degrade contract**, destroys. Needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`) — [REVIEW §4 #7](./REVIEW-2026-10-23.md) |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
@@ -187,8 +194,10 @@ see `GOALS.md` **G8**: the harness logs `[Api] Started → http://localhost:1337
 nothing listens and the first test hangs. A hang is a defect to report, not a pass.
 
 **Deployed — `pnpm test:e2e`** (`e2e/stack.test.ts`). Deploys a `test_$USER` stage, drives the live
-Worker over HTTP, destroys. The strongest behavioural evidence, and it runs in
-`.github/workflows/e2e.yml`.
+Worker over HTTP, destroys — and **ends with a fault injection**: it deletes the stage's D1 and asserts
+the degrade contract (`/stats` 200 `degraded:true`, `/audit` 503). That is the only check that sees
+behaviour under **failure**; every other gate, here and in CI, runs with healthy dependencies. It runs
+in `.github/workflows/e2e.yml`.
 
 `test/manifest.test.ts` requires the expected suite set exactly and keeps the declared test count at
 or above a floor, so deleting a suite or its tests is a failing diff rather than one fewer green

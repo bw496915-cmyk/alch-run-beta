@@ -79,5 +79,73 @@ test(
   }),
 );
 
+/**
+ * One Cloudflare API call, as a plain async function: `Effect.gen` bodies must be
+ * generator-only, so the awaits live here and are lifted with `Effect.promise`.
+ */
+const cfApi = async (path: string, init: RequestInit = {}): Promise<{ status: number; body: any }> => {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}${path}`,
+    {
+      ...init,
+      headers: {
+        authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+        "content-type": "application/json",
+      },
+    },
+  );
+  return { status: response.status, body: await response.json().catch(() => null) };
+};
+
+/**
+ * Fault injection — the only check here that sees the *contract* rather than the
+ * behaviour, because every other assertion runs with healthy dependencies.
+ *
+ * It deletes the stage's D1 out of band and asserts that `fetch` degrades instead
+ * of 500ing. This is the test that would have caught the Effect-native
+ * regression unaided: `Effect.catch` recovers typed failures but not *defects*,
+ * and a dead binding is a defect, so both ops routes returned a bare 500 with an
+ * empty body (GOALS.md G13). No amount of healthy-path assertion can see that.
+ *
+ * Declared LAST deliberately: it breaks the D1, and the `afterAll` destroy
+ * tolerates the drift (verified — it removes the remaining six resources).
+ */
+test(
+  "a failing dependency degrades rather than 500s (fault injection)",
+  Effect.gen(function* () {
+    const { url, databaseName } = yield* stack;
+    const admin = yield* Config.String("ADMIN_TOKEN");
+    const auth = { headers: { authorization: `Bearer ${admin}` } };
+
+    // Remove the dependency this stage just created.
+    const listed = yield* Effect.promise(() => cfApi("/d1/database"));
+    const db = (listed.body?.result ?? []).find((d: { name: string }) => d.name === databaseName);
+    expect(db, `the stage's D1 (${databaseName}) should exist`).toBeDefined();
+    const deleted = yield* Effect.promise(() => cfApi(`/d1/database/${db.uuid}`, { method: "DELETE" }));
+    expect(deleted.status).toBe(200);
+
+    // The admin half must SURVIVE the other's failure: 200, degraded, D1 null.
+    let stats = yield* Test.executeWhenReady(HttpClientRequest.get(`${url}/stats`, auth));
+    for (let i = 0; i < 12 && stats.status === 200; i++) {
+      const seen = (yield* stats.json) as { degraded?: boolean };
+      if (seen.degraded === true) break;
+      yield* Effect.sleep("3 seconds");
+      stats = yield* Test.executeWhenReady(HttpClientRequest.get(`${url}/stats`, auth));
+    }
+    expect(stats.status).toBe(200);
+    const body = (yield* stats.json) as { degraded?: boolean; d1?: { auditEvents: unknown } };
+    expect(body.degraded).toBe(true);
+    expect(body.d1?.auditEvents).toBeNull();
+
+    // The D1-only route must be the NAMED 503, not a bare 500 with no body.
+    const audit = yield* HttpClient.get(`${url}/audit`, auth);
+    expect(audit.status).toBe(503);
+    const detail = (yield* audit.json) as { error?: string; detail?: string };
+    expect(detail.error).toBe("dependency unavailable");
+    expect(detail.detail).toContain("D1");
+  }),
+  { timeout: 300_000 },
+);
+
 // Keep the stage for fast re-runs locally: `NO_DESTROY=1 pnpm test:e2e`.
 afterAll.skipIf(!!process.env.NO_DESTROY)(destroy(Stack));
