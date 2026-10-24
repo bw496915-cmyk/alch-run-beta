@@ -10,12 +10,6 @@ import { defineConfig } from "vitest/config";
  * silently join the gate.
  */
 export default defineConfig({
-  resolve: {
-    alias: {
-      // Node cannot resolve the Workers runtime module; the test stub stands in.
-      "cloudflare:workers": new URL("./test/stubs/cloudflare-workers.ts", import.meta.url).pathname,
-    },
-  },
   test: {
     include: ["test/**/*.test.ts"],
     // The dev-mode API suite (`test/api.test.ts`) boots workerd and deploys the

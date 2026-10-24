@@ -9,12 +9,6 @@ import { defineConfig } from "vitest/config";
  * run explicitly with `pnpm test:e2e`, never as part of the offline gate.
  */
 export default defineConfig({
-  resolve: {
-    alias: {
-      // Node cannot resolve the Workers runtime module; the test stub stands in.
-      "cloudflare:workers": new URL("./test/stubs/cloudflare-workers.ts", import.meta.url).pathname,
-    },
-  },
   test: {
     include: ["e2e/**/*.test.ts"],
     // A real deploy and destroy are minutes, not milliseconds.
