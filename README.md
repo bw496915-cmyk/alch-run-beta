@@ -95,7 +95,7 @@ on 2026-10-23. Stage `deep-pass`, account `7a470541a704caaf91e71efccc78fd36`.
 | D1 database | `AlchRunBeta-Db-deep-pass-ihj3cxwbtipjaog6` | both migrations applied; `audit_events` holds consumer-written rows |
 | KV namespace | `2430e2e45a8544568114b1c098146c42` | a second `GET /photos` **within 60 s** returns `x-cache: hit`; cold otherwise (the KV TTL, verified: the namespace is empty between bursts) |
 | Queue + Consumer | `alchrunbeta-events-deep-pass-73jum5an2fzj4s3k` + `ApiAuditConsumer` | an audit row appears that no request wrote |
-| Dead-letter queue | `alchrunbeta-auditdeadletter-deep-pass-tee5ns7ofvt6mr5r` | the consumer's `deadLetterQueue` — an event that exhausts its 3 retries lands here instead of being dropped. **It has no consumer, so nothing drains or alerts it**; verified by pushing a malformed message (`backlog_count: 2`, `consumers: []`). Draining/alerting it is an open follow-up |
+| Dead-letter queue | `alchrunbeta-auditdeadletter-deep-pass-tee5ns7ofvt6mr5r` | the consumer's `deadLetterQueue` — an event that exhausts its 3 retries lands here instead of being dropped. **It has no consumer, so nothing drains or alerts it**; verified by pushing a malformed message (`backlog_count: 2`, `consumers: []`) — those two artifacts were then purged (`pnpm queue-health --purge`, 2026-10-24), so the queue is empty and the hourly guard is green. Draining/alerting it is an open follow-up |
 | Durable Object | class `Counter`, namespace `dd0b8b6bbc5d45948e7e084bb69387fa` | counter increments across calls and survives eviction (`3`→`4`) |
 | Cron trigger | `0 3 * * *` on the Worker | fires — 16 `cron.fire` rows on 2026-10-23; first delivery **11m11s** after the trigger was attached ([CRON-FINDINGS.md](./CRON-FINDINGS.md)) |
 | Runtime compat | `compatibility_date: 2026-08-31`, `compatibility_flags: ["new_module_registry"]` | shipped on the version (`GET …/services/{name}/environments/production`) — recorded here because the docs never named it |
@@ -143,7 +143,7 @@ fresh state would try to recreate resources that already exist.
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
 | `pnpm drift` / `logs` / `check-env` / `state` | Ops: detect out-of-band changes, read or tail logs, credential preflight, list state |
 | `pnpm cron-health` | Asserts the cron expression Cloudflare **delivers** matches the one configured — the one external mechanism no other check can see ([§8](./REVIEW-2026-10-23.md)) |
-| `pnpm queue-health` | Asserts the dead-letter queue is empty — the silent-sink invariant ([AUDIT-2026-10-23.md](./AUDIT-2026-10-23.md) §5) |
+| `pnpm queue-health` | Asserts the dead-letter queue is empty — the silent-sink invariant ([AUDIT-2026-10-23.md](./AUDIT-2026-10-23.md) §5). `--purge` empties it (opt-in, one-way) when the parked messages are this repo's own artifacts |
 | `pnpm preflight` | Probes scratch space at session start: writes a nonce, reads it back, removes it, and reports `scratch: ok | READ-ONLY`. A read-only `/tmp` is an environment failure, not a network error ([REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) rule 11) |
 
 Flags are **per-subcommand** — `alchemy state list` takes no `--stage` — so read `--help` for

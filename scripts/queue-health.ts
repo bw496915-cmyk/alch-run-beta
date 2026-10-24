@@ -12,6 +12,11 @@
  *
  *   --queue <substring>   queue name to match (default: auditdeadletter)
  *   --max <n>             tolerated backlog (default 0)
+ *   --purge               purge a non-empty DLQ, wait for it to complete, then
+ *                         re-check. One-way and opt-in: the guard's job is to
+ *                         *notice* parked messages, not to hide them. For
+ *                         clearing artifacts this repo created — e.g. the
+ *                         malformed messages pushed to verify the sink itself.
  *
  * Exit codes: 0 empty, 1 messages parked, 2 misconfigured or unreachable.
  */
@@ -25,6 +30,7 @@ const TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const MATCH = readFlag(argv, "queue", "auditdeadletter") ?? "auditdeadletter";
 // `0` is the default and a valid value, so this is the non-negative parser.
 const MAX = readNonNegativeNumberFlag(argv, "max", 0);
+const PURGE = argv.includes("--purge");
 
 if (!TOKEN) {
   console.error("CLOUDFLARE_API_TOKEN is not set");
@@ -35,11 +41,13 @@ if (!Number.isFinite(MAX)) {
   process.exit(2);
 }
 
-const api = async <T>(path: string): Promise<T> => {
+const api = async <T>(path: string, method: "GET" | "POST" = "GET", payload?: unknown): Promise<T> => {
   let response: Response;
   try {
     response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}${path}`, {
+      method,
       headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
   } catch (error) {
     console.error(`${path} unreachable: ${error instanceof Error ? error.message : String(error)}`);
@@ -73,10 +81,44 @@ if (matched.length === 0) {
   process.exit(2);
 }
 
-const verdicts: QueueVerdict[] = [];
-for (const queue of matched) {
-  const metrics = await api<{ backlog_count?: number }>(`/queues/${queue.queue_id}/metrics`);
-  verdicts.push(verdictFor({ name: queue.queue_name, backlog: metrics.backlog_count ?? 0, max: MAX }));
+const collect = async (): Promise<QueueVerdict[]> => {
+  const verdicts: QueueVerdict[] = [];
+  for (const queue of matched) {
+    const metrics = await api<{ backlog_count?: number }>(`/queues/${queue.queue_id}/metrics`);
+    verdicts.push(verdictFor({ name: queue.queue_name, backlog: metrics.backlog_count ?? 0, max: MAX }));
+  }
+  return verdicts;
+};
+
+let verdicts = await collect();
+
+if (PURGE && verdicts.some((v) => !v.ok)) {
+  // `POST /queues/{id}/purge` removes every message. The body is REQUIRED — `{}`
+  // is a 400 "Invalid request body" — and `delete_messages_permanently: true` is
+  // what actually empties the queue. A purge is asynchronous, so this waits on
+  // the status endpoint at the same path, which answers `{started_at, complete}`
+  // — a *boolean* `complete`, where the API reference documents a `completed`
+  // string. Both facts are from the live account, not the reference.
+  const purged = matched.filter((_, i) => !verdicts[i]?.ok);
+  for (const queue of purged) {
+    await api(`/queues/${queue.queue_id}/purge`, "POST", { delete_messages_permanently: true });
+    console.log(`purge started for ${queue.queue_name}`);
+  }
+  const deadline = Date.now() + 60_000;
+  let running = purged.length;
+  while (running > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    running = 0;
+    for (const queue of purged) {
+      const status = await api<{ complete?: boolean }>(`/queues/${queue.queue_id}/purge`);
+      if (status.complete !== true) running++;
+    }
+  }
+  if (running > 0) {
+    console.error("purge did not report complete within 60s — re-run to confirm");
+    process.exit(2);
+  }
+  verdicts = await collect();
 }
 
 for (const verdict of verdicts) console.log(`${verdict.ok ? "ok  " : "FAIL"} ${verdict.detail}`);
