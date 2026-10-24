@@ -157,10 +157,13 @@ no longer asserts `ApiEnv` at all — the guarantee is **structural** now (see �
 
 ## Refactor backlog
 
-Done: interfaces deleted (14 → 0), `env` typed by `InferEnv`, handlers take `ctx`,
-`Response.json`, DO on `extends DurableObject` with `ctx.storage.transaction`, typed RPC
-instead of URL dispatch.
+Still true: interfaces deleted (14 → 0), `Response.json`, typed DO RPC instead of URL
+dispatch, and the shell wrapper deleted with its CI step repointed at the CLI. The gates
+are `test/policy.test.ts`.
 
-All four backlog items are done: interfaces deleted, `env` typed by `InferEnv`, handlers take
-`ctx`, gates encoded as `test/policy.test.ts` (three layers, mutation-checked), and the shell
-wrapper deleted with its CI step repointed at the CLI.
+**Superseded by the Effect-native migration (2026-10-23, PR #1):** `env` typed by
+`InferEnv`, handlers taking `ctx: ExecutionContext`, and the DO's `ctx.storage.transaction`
+all described the async `export default { fetch, queue, scheduled }` shape. That shape is
+gone: the Worker is a `Cloudflare.Worker` class, a binding is `yield*`ed and hands back the
+real client, and `InferEnv` is now **forbidden** by the gates. Do not restore these as
+"done" — they would hand-type a binding that no longer has a name.

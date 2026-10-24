@@ -2,12 +2,12 @@
 /**
  * Assert that a dead-letter queue is empty — the sink the audit found.
  *
- * `Queues.Consumer({ deadLetterQueue })` stops at parking a poison message: the
+ * The event-source consumer (`consumeQueueMessages`, with a `deadLetterQueue` prop) stops at parking a poison message: the
  * DLQ has no consumer and no alert, so a failure is silent for the 4-day
  * retention and then the message expires. This reads the queue's own
  * `backlog_count` and fails when anything is parked.
  *
- * Usage (Node 22+, no dependencies):
+ * Usage (needs `pnpm install` — this script imports `alchemy/Cli/Format`):
  *   CLOUDFLARE_API_TOKEN=… node scripts/queue-health.ts [options]
  *
  *   --queue <substring>   queue name to match (default: auditdeadletter)

@@ -48,9 +48,13 @@ resolve, and if only the scoped packages are there, the core is still beta.83.
 
 ---
 
-## The entire diff for this tree: 6 files
+## The import rewrite
 
-Five of them change one import line each; `src/Api.ts` changes not at all.
+This was **six files** before the Effect-native migration — five one-line swaps, and `src/Api.ts`
+untouched. That is no longer the whole diff: `src/Api.ts` and `src/Counter.ts` are now
+provider-importing files (they talked to an `env` object when this runbook was written), and
+`stacks/github.ts` plus the two suites import providers as well. Re-run the grep at "That is all"
+for the current set instead of trusting the count below.
 
 ### 1. `package.json`
 
@@ -99,12 +103,13 @@ The same one-line swap in each of the four resource modules:
 `Cloudflare.Queues.Queue` all arrive through that one import, so the split costs one line
 per module that declares a resource.
 
-### 4. `src/Api.ts` — no change
+### 4. `src/Api.ts` — one import, plus the Worker provider *(was: "no change")*
 
-The Worker imports nothing from Alchemy. It talks to `env.PHOTOS`, `env.DB`, `env.CACHE`,
-`env.COUNTER` and `env.EVENTS`, which are bindings, not provider imports. It also exports
-the plain `Counter` Durable Object class, which is bound from `alchemy.run.ts`, so the
-package split does not reach into it either.
+Pre-migration the Worker imported nothing from Alchemy: it talked to `env.PHOTOS`, `env.DB`,
+`env.CACHE`, `env.COUNTER` and `env.EVENTS`, which are bindings, not provider imports. Post-migration
+it is an Effect-native Worker and imports `alchemy/Cloudflare` for `Cloudflare.Worker`,
+`Cloudflare.Workers.cron` and the DO provider — and `src/Counter.ts` does the same. The split still
+costs one line per file; there are simply more of them now.
 
 ### 5. `migrations/*.sql` — no change
 
@@ -114,8 +119,10 @@ touch it.
 ### That is all
 
 ```bash
-# should print exactly five lines: alchemy.run.ts, src/{Db,Cache,Photos,QueueEvents}.ts
-rg -n 'from "alchemy/' alchemy.run.ts src/
+# Every file importing from the alchemy packages. Run this at migration time and diff the result;
+# do not trust a count written in a doc. At the 2026-10-23 migration it printed
+# src/{Api,Counter,Cache,Db,Photos,QueueEvents}.ts and alchemy.run.ts.
+rg -n 'from "alchemy/' --glob '*.ts' .
 ```
 
 ---

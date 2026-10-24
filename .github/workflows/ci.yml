@@ -71,7 +71,9 @@ jobs:
       - name: Typecheck (tsc --noEmit, strict)
         run: pnpm typecheck
 
-      # No network, no Cloudflare account: the suite fakes every binding in memory.
+      # No network, no Cloudflare account: the offline suite is logic/docs/policy/ops and
+      # touches no binding at all. The API suites are dev-mode (`pnpm test:dev`) and deployed
+      # (`pnpm test:e2e`); see README §Testing.
       - name: Unit tests (vitest)
         run: pnpm test
 

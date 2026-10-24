@@ -40,8 +40,10 @@ CRON-FINDINGS.md          the cron measurement-window finding
 .alchemy/                 local state + dev logs (gitignored)
 ```
 
-Provider imports live only in the modules that declare a resource; `src/Api.ts` imports nothing
-from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
+Provider imports now reach the Worker too: since the Effect-native migration `src/Api.ts` and
+`src/Counter.ts` import `alchemy/Cloudflare` for the Worker/DO providers, so the beta.84 package
+split is more than the resource modules. [MIGRATION-beta84.md](./MIGRATION-beta84.md) is the file
+that has to be right — re-run its grep rather than trusting a count.
 
 ## The API
 
@@ -51,14 +53,15 @@ from Alchemy, so the beta.84 package split is a handful of one-line rewrites.
 | `GET /health` | — | `{ ok, time }` |
 | `GET /stats` | DO + D1 | **Admin-gated.** DO counter + audit-row count, each read independently (`degraded: true` if one fails) |
 | `GET /audit` | D1 | **Admin-gated.** Rows written by the `queue()` handler |
-| `GET /photos` | KV → D1 | Cached index, **60 s TTL**; `x-cache: hit` from KV (cold after 60 s or isolate churn), `miss` from D1 + refill |
+| `GET /photos` | KV → D1 | Cached index, **60 s TTL**; `x-cache: hit` from KV (cold after the 60 s TTL — the key carries it and the platform deletes it at expiry, **not** isolate churn: [AUDIT-2026-10-23.md](./AUDIT-2026-10-23.md)), `miss` from D1 + refill |
 | `GET /photos/:key` | R2 + D1 | Body from R2, content-type/created-at from the D1 row |
 | `PUT /photos/:key` | R2 + D1 + KV + Queue | Body, upsert, cache bust, audit event |
 | `DELETE /photos/:key` | R2 + D1 + KV | Removes object + row, busts cache |
 
 Effect-native: `src/Api.ts` **is** the Worker (`main: import.meta.url`), its bindings are
 `yield*`ed services, and the queue consumer (`consumeQueueMessages`) and the cron
-(`Workers.cron`, `0 3 * * *`, proven to fire) are event sources — `Platform.Main` carries
+(`Workers.cron`, `0 3 * * *` — deployed, and asserted by `pnpm cron-health`; the migration has not
+fired it, so "proven" belongs to the pre-migration shape, not this one) are event sources — `Platform.Main` carries
 `fetch` only, so they cannot be default-export handlers.
 
 The `Counter` Durable Object lives in `src/Counter.ts`, extends
@@ -107,8 +110,10 @@ Two live caveats, neither green yet:
   object (`cpuTimeMs: 0`, no `Counter` invocation), so it was platform-side — see
   [REVIEW-2026-10-23.md](./REVIEW-2026-10-23.md) §9 #7.
 
-The live bundle now matches `src/` (redeployed 2026-10-23): the four bug fixes, the
-`AuditDeadLetter` queue, the admin gate on `/stats` + `/audit`, and the degrade-to-503 path.
+The live bundle last matched `src/` on 2026-10-23 (the four bug fixes, the `AuditDeadLetter` queue,
+the admin gate, the degrade-to-503 path). **It no longer does:** the Effect-native migration and the
+`HttpRouter` change have not been redeployed to `deep-pass`, so until the next deploy (expected with
+the DLQ rename, [`GOALS.md`](./GOALS.md) G4) read the table above as the pre-migration bundle.
 
 ```bash
 export CLOUDFLARE_API_TOKEN=…          # see Credentials
@@ -129,7 +134,8 @@ fresh state would try to recreate resources that already exist.
 | Command | What it does |
 | --- | --- |
 | `pnpm typecheck` | `tsc --noEmit` over `alchemy.run.ts`, `src/`, `test/` |
-| `pnpm test` | `vitest run` — 74 offline tests in eight suites, no account, no network |
+| `pnpm test` | `vitest run` — 42 offline tests in seven suites (logic/docs/policy/ops), no account, no network. It does **not** exercise bindings — see Testing |
+| `pnpm test:dev` | `vitest.dev.config.ts` — `test/api.test.ts` on workerd, driving the Worker over HTTP. Currently unreliable here ([`GOALS.md`](./GOALS.md) G8) |
 | `pnpm test:e2e` | The deployed-stack suite (`e2e/stack.test.ts`): deploys a `test_$USER` stage, drives the live Worker over HTTP, destroys. Needs an account (`CLOUDFLARE_API_TOKEN` + `ADMIN_TOKEN`) — [REVIEW §4 #7](./REVIEW-2026-10-23.md) |
 | `pnpm dev` | Local loop on workerd, HMR at <http://localhost:1337> |
 | `pnpm plan` / `deploy` / `destroy` | Alchemy against `$ALCHEMY_STAGE` (or `live_${USER}`) |
@@ -149,31 +155,32 @@ tree is in [REVIEW-2026-10-23.md §12.2](./REVIEW-2026-10-23.md).
 
 ## Testing
 
-Offline by construction: `env` is typed by `ApiEnv` (`Cloudflare.InferEnv` from the composition
-root) — real `R2Bucket`/`D1Database`/`KVNamespace`/`Queue`/`DurableObjectNamespace`, zero
-hand-written interfaces — so every binding is faked in memory and cast once at the harness
-boundary, where the runtime supplies the rest.
+Three suites, and they are **not** interchangeable — say which one you mean. There are no
+in-memory binding fakes any more: an Effect-native Worker has no `env` object, so there is nothing
+to fake and nothing to cast. The old fakes and the `cloudflare:workers` stub were deleted with the
+migration.
 
-| Binding | Fake | Fidelity kept |
-| --- | --- | --- |
-| `PHOTOS` | `Map` | `size` is UTF-8 byte length, as R2 reports it |
-| `DB` | switches on the Worker's SQL | unknown SQL throws, so a new query cannot pass silently |
-| `CACHE` | `Map` | records `expirationTtl`; never expires |
-| `EVENTS` | array | captures bodies |
-| `COUNTER` | namespace stub | delegates to a real `new Counter(state, env)`, so DO code runs against fake storage |
+**Offline — `pnpm test`** (7 suites, 42 tests). Logic, docs, policy and ops-check tests: the manifest
+guard, the conventions gates, the cron/queue-health logic, the flag parser. It touches **no
+binding**, so it cannot see a route. Green in CI on every push.
 
-`cloudflare:workers` is aliased in `vitest.config.ts` to `test/stubs/cloudflare-workers.ts` —
-Node cannot resolve the Workers runtime module, while type-checking still uses the real
-declaration from `@cloudflare/workers-types`.
+**Dev-mode — `pnpm test:dev`** (`test/api.test.ts`, `vitest.dev.config.ts`). The integration suite:
+`Test.make({ dev: true })` runs the Worker on workerd and drives it over HTTP. Excluded from
+`vitest.config.ts` because it boots a runtime. **It is not currently reliable in this checkout** —
+see `GOALS.md` **G8**: the harness logs `[Api] Started → http://localhost:1337/` but sometimes
+nothing listens and the first test hangs. A hang is a defect to report, not a pass.
 
-The suite also guards itself: `test/manifest.test.ts` requires the expected suite set exactly and
-keeps the declared test count at or above a floor, so deleting a suite or its tests is a failing
-diff rather than one fewer green check (its limits — declarations, not executions — are stated in
-the file). `test/docs.test.ts` records what it cannot see next to the test that cannot see it.
+**Deployed — `pnpm test:e2e`** (`e2e/stack.test.ts`). Deploys a `test_$USER` stage, drives the live
+Worker over HTTP, destroys. The strongest behavioural evidence, and it runs in
+`.github/workflows/e2e.yml`.
 
-Covered: every route above, the cache miss→hit pair (asserting a hit never reaches D1),
-`queue()` ack/retry/drain-after-failure, `scheduled()` bumping the DO and writing `cron.fire`,
-and `Counter` continuing from storage rather than module state.
+`test/manifest.test.ts` requires the expected suite set exactly and keeps the declared test count at
+or above a floor, so deleting a suite or its tests is a failing diff rather than one fewer green
+check (its limits — declarations, not executions — are stated in the file). `test/docs.test.ts`
+records what it cannot see next to the test that cannot see it.
+
+Routes, statuses, headers and bodies are covered by the **dev-mode** and **deployed** suites. The
+offline suites cannot see a binding at all — do not cite them as route coverage.
 
 Tests share the root `tsconfig.json` (no relaxed flags), so `pnpm typecheck` gates them too.
 Four defects and one CI blocker the suite found are **fixed**, not pinned:

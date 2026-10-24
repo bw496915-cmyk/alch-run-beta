@@ -3,7 +3,7 @@
  * process concerns so it can be unit-tested. `scripts/queue-health.ts` supplies
  * the observations; this decides.
  *
- * Why this exists: `Queues.Consumer({ deadLetterQueue })` parks a poison message
+ * Why this exists: the queue consumer (`consumeQueueMessages`, a `deadLetterQueue`) parks a poison message
  * after `maxRetries`, and **nothing drains or alerts the queue** — so the failure
  * is silent for the 4-day retention and then the message expires. That is the sink
  * the audit attributed to our side (alchemy wires `dead_letter_queue`, Cloudflare

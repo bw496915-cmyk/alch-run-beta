@@ -14,7 +14,7 @@
  *                (the platform's record, not our handler's D1 rows: had the
  *                 handler been the broken part, our own rows would be missing too)
  *
- * Usage (Node 22+, no dependencies):
+ * Usage (needs `pnpm install` — this script imports `alchemy/Cli/Format`):
  *   CLOUDFLARE_API_TOKEN=… node scripts/cron-health.ts [options]
  *
  *   --stage <name>           stage whose Worker name is read from .alchemy state

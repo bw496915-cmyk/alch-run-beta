@@ -96,9 +96,12 @@ the `0 3 * * *` fire on 2026-10-24.
 
 ## Final state
 
-- `alchemy.run.ts:45` is back to the committed `crons: ["0 3 * * *"]` (the TEMP
-  `* * * * *` is gone; the file is byte-identical to `HEAD`, so no source change
-  was needed for the fix).
+- `alchemy.run.ts` is back to its committed state (the TEMP `* * * * *` is gone; the
+  file was byte-identical to `HEAD`, so no source change was needed for the fix).
+  *Where* the cron lives has since moved: after the Effect-native migration it is
+  `Cloudflare.Workers.cron("0 3 * * *", …)` in `src/Api.ts`, not a prop in
+  `alchemy.run.ts` — the async `crons: […]` shape quoted by this finding is the
+  pre-migration one.
 - `deep-pass` redeployed; `GET /accounts/…/workers/scripts/alchrunbeta-api-deep-pass-…/schedules`
   → `{"cron":"0 3 * * *"}`, `/health` 200, `/stats` serves the DO, `/audit` serves D1.
 - All probe scripts, KV namespaces and stages (`cron-probe`) destroyed.
